@@ -9,9 +9,9 @@ from google.genai import types
 # Carrega variáveis do arquivo .env
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("Chatbot-API")
 if not api_key:
-    raise RuntimeError("A variável GEMINI_API_KEY não foi configurada no arquivo .env!")
+    raise RuntimeError("A variável Chatbot-API não foi configurada no arquivo .env!")
 
 # Inicializa o cliente oficial do Gemini
 client = genai.Client(api_key=api_key)
