@@ -1,52 +1,16 @@
-# ------------------------------------------------------------------------------
-# Chaves de API e Variáveis de Ambiente (CRÍTICO: Nunca subir para o GitHub!)
-# ------------------------------------------------------------------------------
-.env
-.env.*
-*.env
-
-# ------------------------------------------------------------------------------
-# Ambientes Virtuais do Python
-# ------------------------------------------------------------------------------
+# Ambiente virtual do Python
 venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-bin/
-lib/
-include/
 
-# ------------------------------------------------------------------------------
-# Byte-compiled / arquivos de cache do Python
-# ------------------------------------------------------------------------------
+# Cache e arquivos compilados do Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
 
-# ------------------------------------------------------------------------------
-# Configurações de IDEs e Editores de Código
-# ------------------------------------------------------------------------------
+# Configurações do editor (VS Code)
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
 
-# ------------------------------------------------------------------------------
-# Pastas e Cache do Streamlit
-# ------------------------------------------------------------------------------
-.streamlit/secrets.toml
-.streamlit/v1/
+# Arquivos de cache do Streamlit
+.streamlit/
 
-# ------------------------------------------------------------------------------
-# Arquivos de Sistema Operacional
-# ------------------------------------------------------------------------------
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
+# Arquivos de sistema do Windows
 Thumbs.db
+ehthumbs.db

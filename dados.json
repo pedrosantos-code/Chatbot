@@ -1,16 +1,63 @@
 {
-  "respostas": [
-    {
-      "perguntas": ["olá", "tudo bem", "oi", "bom dia"],
-      "resposta": "Olá! Tudo ótimo por aqui. Como posso ajudar-te hoje?"
-    },
-    {
-      "perguntas": ["quem és tu", "qual o teu nome"],
-      "resposta": "Eu sou um assistente virtual inteligente desenvolvido pelo Pedro."
-    },
-    {
-      "perguntas": ["qual a tecnologia", "tech stack"],
-      "resposta": "O projeto utiliza Python, FastAPI, Streamlit e Pydantic!"
-    }
-  ]
+    "respostas": [
+        {
+            "perguntas": [
+                "olá",
+                "tudo bem",
+                "oi",
+                "bom dia"
+            ],
+            "resposta": "Olá! Tudo ótimo por aqui. Como posso ajudar-te hoje?"
+        },
+        {
+            "perguntas": [
+                "quem és tu",
+                "qual o teu nome"
+            ],
+            "resposta": "Eu sou um assistente virtual inteligente desenvolvido pelo Pedro."
+        },
+        {
+            "perguntas": [
+                "qual a tecnologia",
+                "tech stack"
+            ],
+            "resposta": "O projeto utiliza Python, FastAPI, Streamlit e Pydantic!"
+        },
+        {
+            "perguntas": [
+                "vou comprar um carro amanhã, quero umas dicas"
+            ],
+            "resposta": "Ainda estou a processar informações sobre 'vou comprar um carro amanhã, quero umas dicas', mas registei este tema na minha base de dados local."
+        },
+        {
+            "perguntas": [
+                "quero vape, aonde eu posso comprar"
+            ],
+            "resposta": "Ainda estou a processar informações sobre 'quero vape, aonde eu posso comprar', mas registei este tema na minha base de dados local."
+        },
+        {
+            "perguntas": [
+                "vou passear com um amigo, n vi que tava chovendo, vc consegue me ver a tempertaura de amanhã?"
+            ],
+            "resposta": "Ainda estou a processar informações sobre 'vou passear com um amigo, n vi que tava chovendo, vc consegue me ver a tempertaura de amanhã?', mas registei este tema na minha base de dados local."
+        },
+        {
+            "perguntas": [
+                "import json\nimport os\nimport re\nimport difflib\nfrom fastapi import fastapi, httpexception\nfrom pydantic import basemodel\nfrom typing import list, optional\n\napp = fastapi(\n    title=\"chatbot local com títulos inteligentes\",\n    version=\"2.8.0\"\n)\n\narquivo_dados = \"dados.json\"\narquivo_historicos = \"historicos.json\"\n\ndef carregar_dados():\n    if os.path.exists(arquivo_dados):\n        with open(arquivo_dados, \"r\", encoding=\"utf-8\") as f:\n            return json.load(f)\n    return {\"respostas\": []}\n\ndef salvar_dados(dados):\n    with open(arquivo_dados, \"w\", encoding=\"utf-8\") as f:\n        json.dump(dados, f, ensure_ascii=false, indent=4)\n\ndef carregar_historicos_salvos():\n    if os.path.exists(arquivo_historicos):\n        with open(arquivo_historicos, \"r\", encoding=\"utf-8\") as f:\n            return json.load(f)\n    return {}\n\ndef salvar_historicos_salvos(historicos):\n    with open(arquivo_historicos, \"w\", encoding=\"utf-8\") as f:\n        json.dump(historicos, f, ensure_ascii=false, indent=4)\n\ndef gerar_titulo_inteligente(mensagem: str) -> str:\n    msg = re.sub(r'[^\\w\\s]', '', mensagem).lower().strip()\n    if not msg:\n        return \"nova conversa\"\n\n    stopwords = {\n        \"a\", \"o\", \"e\", \"é\", \"de\", \"do\", \"da\", \"em\", \"um\", \"uma\", \"para\", \"com\", \n        \"não\", \"os\", \"as\", \"no\", \"na\", \"por\", \"mais\", \"dos\", \"das\", \"mas\", \n        \"foi\", \"ao\", \"ele\", \"ela\", \"seu\", \"sua\", \"ou\", \"quando\", \"muito\", \n        \"nos\", \"já\", \"eu\", \"também\", \"só\", \"pelo\", \"pela\", \"até\", \"esse\", \"isso\", \n        \"num\", \"numa\", \"qual\", \"onde\", \"meu\", \"minha\", \"teu\", \"tua\", \"vou\", \"que\",\n        \"tava\", \"tá\", \"vi\", \"vc\", \"cê\", \"consegue\", \"me\", \"ver\", \"com\"\n    }\n\n    palavras = msg.split()\n    palavras_filtradas = [p for p in palavras if p not in stopwords and len(p) > 3]\n    \n    if not palavras_filtradas:\n        return palavras[0].capitalize() if palavras else \"nova conversa\"\n\n    palavras_unicas = []\n    for p in palavras_filtradas:\n        if p not in palavras_unicas:\n            palavras_unicas.append(p)\n\n    termos_principais = palavras_unicas[:3]\n    return \" \".join([p.capitalize() for p in termos_principais])\n\nclass mensagemhistorico(basemodel):\n    role: str\n    content: str\n\nclass chatrequest(basemodel):\n    session_id: str\n    mensagem: str\n    historico: optional[list[mensagemhistorico]] = []\n\nclass chatresponse(basemodel):\n    resposta: str\n    titulo_sessao: str\n\n@app.get(\"/\")\ndef home():\n    return {\"status\": \"backend a funcionar com sucesso!\"}\n\n@app.post(\"/chat\", response_model=chatresponse)\ndef processar_chat(req: chatrequest):\n    try:\n        dados = carregar_dados()\n        mensagem_usuario = req.mensagem.lower().strip()\n        \n        melhor_resposta = none\n        maior_pontuacao = 0.0\n\n        for item in dados.get(\"respostas\", []):\n            for p in item[\"perguntas\"]:\n                pontuacao = difflib.sequencematcher(none, mensagem_usuario, p.lower()).ratio()\n                if pontuacao > maior_pontuacao:\n                    maior_pontuacao = pontuacao\n                    melhor_resposta = item[\"resposta\"]\n\n        if maior_pontuacao >= 0.4:\n            resposta_final = melhor_resposta\n        else:\n            nova_entrada = {\n                \"perguntas\": [mensagem_usuario],\n                \"resposta\": f\"ainda estou a processar informações sobre '{req.mensagem}', mas registei este tema na minha base de dados local.\"\n            }\n            dados[\"respostas\"].append(nova_entrada)\n            salvar_dados(dados)\n            resposta_final = f\"interessante! adicionei a tua questão à minha base de dados local.\"\n\n        historicos = carregar_historicos_salvos()\n        \n        if req.session_id not in historicos:\n            titulo_sessao = gerar_titulo_inteligente(req.mensagem)\n            historicos[req.session_id] = {\n                \"titulo\": titulo_sessao,\n                \"mensagens\": []\n            }\n        else:\n            titulo_sessao = historicos[req.session_id][\"titulo\"]\n\n        historicos[req.session_id][\"mensagens\"].append({\"role\": \"user\", \"content\": req.mensagem})\n        historicos[req.session_id][\"mensagens\"].append({\"role\": \"assistant\", \"content\": resposta_final})\n        salvar_historicos_salvos(historicos)\n\n        return chatresponse(\n            resposta=resposta_final,\n            titulo_sessao=titulo_sessao\n        )\n\n    except exception as e:\n        raise httpexception(status_c"
+            ],
+            "resposta": "Ainda estou a processar informações sobre 'import json\nimport os\nimport re\nimport difflib\nfrom fastapi import FastAPI, HTTPException\nfrom pydantic import BaseModel\nfrom typing import List, Optional\n\napp = FastAPI(\n    title=\"Chatbot Local com Títulos Inteligentes\",\n    version=\"2.8.0\"\n)\n\nARQUIVO_DADOS = \"dados.json\"\nARQUIVO_HISTORICOS = \"historicos.json\"\n\ndef carregar_dados():\n    if os.path.exists(ARQUIVO_DADOS):\n        with open(ARQUIVO_DADOS, \"r\", encoding=\"utf-8\") as f:\n            return json.load(f)\n    return {\"respostas\": []}\n\ndef salvar_dados(dados):\n    with open(ARQUIVO_DADOS, \"w\", encoding=\"utf-8\") as f:\n        json.dump(dados, f, ensure_ascii=False, indent=4)\n\ndef carregar_historicos_salvos():\n    if os.path.exists(ARQUIVO_HISTORICOS):\n        with open(ARQUIVO_HISTORICOS, \"r\", encoding=\"utf-8\") as f:\n            return json.load(f)\n    return {}\n\ndef salvar_historicos_salvos(historicos):\n    with open(ARQUIVO_HISTORICOS, \"w\", encoding=\"utf-8\") as f:\n        json.dump(historicos, f, ensure_ascii=False, indent=4)\n\ndef gerar_titulo_inteligente(mensagem: str) -> str:\n    msg = re.sub(r'[^\\w\\s]', '', mensagem).lower().strip()\n    if not msg:\n        return \"Nova Conversa\"\n\n    stopwords = {\n        \"a\", \"o\", \"e\", \"é\", \"de\", \"do\", \"da\", \"em\", \"um\", \"uma\", \"para\", \"com\", \n        \"não\", \"os\", \"as\", \"no\", \"na\", \"por\", \"mais\", \"dos\", \"das\", \"mas\", \n        \"foi\", \"ao\", \"ele\", \"ela\", \"seu\", \"sua\", \"ou\", \"quando\", \"muito\", \n        \"nos\", \"já\", \"eu\", \"também\", \"só\", \"pelo\", \"pela\", \"até\", \"esse\", \"isso\", \n        \"num\", \"numa\", \"qual\", \"onde\", \"meu\", \"minha\", \"teu\", \"tua\", \"vou\", \"que\",\n        \"tava\", \"tá\", \"vi\", \"vc\", \"cê\", \"consegue\", \"me\", \"ver\", \"com\"\n    }\n\n    palavras = msg.split()\n    palavras_filtradas = [p for p in palavras if p not in stopwords and len(p) > 3]\n    \n    if not palavras_filtradas:\n        return palavras[0].capitalize() if palavras else \"Nova Conversa\"\n\n    palavras_unicas = []\n    for p in palavras_filtradas:\n        if p not in palavras_unicas:\n            palavras_unicas.append(p)\n\n    termos_principais = palavras_unicas[:3]\n    return \" \".join([p.capitalize() for p in termos_principais])\n\nclass MensagemHistorico(BaseModel):\n    role: str\n    content: str\n\nclass ChatRequest(BaseModel):\n    session_id: str\n    mensagem: str\n    historico: Optional[List[MensagemHistorico]] = []\n\nclass ChatResponse(BaseModel):\n    resposta: str\n    titulo_sessao: str\n\n@app.get(\"/\")\ndef home():\n    return {\"status\": \"Backend a funcionar com sucesso!\"}\n\n@app.post(\"/chat\", response_model=ChatResponse)\ndef processar_chat(req: ChatRequest):\n    try:\n        dados = carregar_dados()\n        mensagem_usuario = req.mensagem.lower().strip()\n        \n        melhor_resposta = None\n        maior_pontuacao = 0.0\n\n        for item in dados.get(\"respostas\", []):\n            for p in item[\"perguntas\"]:\n                pontuacao = difflib.SequenceMatcher(None, mensagem_usuario, p.lower()).ratio()\n                if pontuacao > maior_pontuacao:\n                    maior_pontuacao = pontuacao\n                    melhor_resposta = item[\"resposta\"]\n\n        if maior_pontuacao >= 0.4:\n            resposta_final = melhor_resposta\n        else:\n            nova_entrada = {\n                \"perguntas\": [mensagem_usuario],\n                \"resposta\": f\"Ainda estou a processar informações sobre '{req.mensagem}', mas registei este tema na minha base de dados local.\"\n            }\n            dados[\"respostas\"].append(nova_entrada)\n            salvar_dados(dados)\n            resposta_final = f\"Interessante! Adicionei a tua questão à minha base de dados local.\"\n\n        historicos = carregar_historicos_salvos()\n        \n        if req.session_id not in historicos:\n            titulo_sessao = gerar_titulo_inteligente(req.mensagem)\n            historicos[req.session_id] = {\n                \"titulo\": titulo_sessao,\n                \"mensagens\": []\n            }\n        else:\n            titulo_sessao = historicos[req.session_id][\"titulo\"]\n\n        historicos[req.session_id][\"mensagens\"].append({\"role\": \"user\", \"content\": req.mensagem})\n        historicos[req.session_id][\"mensagens\"].append({\"role\": \"assistant\", \"content\": resposta_final})\n        salvar_historicos_salvos(historicos)\n\n        return ChatResponse(\n            resposta=resposta_final,\n            titulo_sessao=titulo_sessao\n        )\n\n    except Exception as e:\n        raise HTTPException(status_c', mas registei este tema na minha base de dados local."
+        },
+        {
+            "perguntas": [
+                "\"cara, eu tinha planeado ir dar uma volta de bicicleta com o meu melhor amigo hoje à tarde, mas acabei de olhar para o céu e parece que vai cair o mundo. estás a ver se a previsão aponta chuva forte para amanhã aqui na cidade? queria saber se vamos conseguir remarcar o passeio ou se vai estragar tudo.\""
+            ],
+            "resposta": "Ainda estou a processar informações sobre '\"Cara, eu tinha planeado ir dar uma volta de bicicleta com o meu melhor amigo hoje à tarde, mas acabei de olhar para o céu e parece que vai cair o mundo. Estás a ver se a previsão aponta chuva forte para amanhã aqui na cidade? Queria saber se vamos conseguir remarcar o passeio ou se vai estragar tudo.\"', mas registei este tema na minha base de dados local."
+        },
+        {
+            "perguntas": [
+                "\"mano, do nada me deu a loucura aqui de começar a programar em python e criar uns scripts para automatizar umas tarefas chatas do meu dia a dia, mas eu não faço a mínima ideia de por onde começar nem quais bibliotecas instalar, podes dar-me umas dicas?\""
+            ],
+            "resposta": "Ainda estou a processar informações sobre '\"Mano, do nada me deu a loucura aqui de começar a programar em Python e criar uns scripts para automatizar umas tarefas chatas do meu dia a dia, mas eu não faço a mínima ideia de por onde começar nem quais bibliotecas instalar, podes dar-me umas dicas?\"', mas registei este tema na minha base de dados local."
+        }
+    ]
 }

@@ -1,0 +1,28 @@
+{
+    "3c961e1f-590c-4b20-87c1-b2c6ac6fd1a3": {
+        "titulo": "Vape aonde posso",
+        "mensagens": [
+            {
+                "role": "user",
+                "content": "quero vape, aonde eu posso comprar"
+            },
+            {
+                "role": "assistant",
+                "content": "Interessante! Não tinha registo disso, por isso adicionei a tua pergunta à minha base de dados local. Da próxima vez já saberei!"
+            }
+        ]
+    },
+    "a1885f22-4c7b-452a-8c58-59dafc2bffd8": {
+        "titulo": "Vou Passear Amigo N Vi",
+        "mensagens": [
+            {
+                "role": "user",
+                "content": "vou passear com um amigo, n vi que tava chovendo, vc consegue me ver a tempertaura de amanhã?"
+            },
+            {
+                "role": "assistant",
+                "content": "Interessante! Não tinha registo disso, por isso adicionei a tua pergunta à minha base de dados local. Da próxima vez já saberei!"
+            }
+        ]
+    }
+}
