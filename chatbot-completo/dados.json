@@ -1,0 +1,16 @@
+{
+  "respostas": [
+    {
+      "perguntas": ["olá", "tudo bem", "oi", "bom dia"],
+      "resposta": "Olá! Tudo ótimo por aqui. Como posso ajudar-te hoje?"
+    },
+    {
+      "perguntas": ["quem és tu", "qual o teu nome"],
+      "resposta": "Eu sou um assistente virtual inteligente desenvolvido pelo Pedro."
+    },
+    {
+      "perguntas": ["qual a tecnologia", "tech stack"],
+      "resposta": "O projeto utiliza Python, FastAPI, Streamlit e Pydantic!"
+    }
+  ]
+}
