@@ -16,7 +16,7 @@ st.markdown("""
 <style>
     /* Estilo do Medidor de Desempenho no Canto Superior Direito */
     .medidor-box {
-        padding: 8px 14px;
+        padding: 8px 12px;
         border-radius: 8px;
         font-size: 13px;
         font-weight: 500;
@@ -25,60 +25,72 @@ st.markdown("""
         margin-top: -10px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         background-color: rgba(255, 255, 255, 0.03);
+        min-width: 190px;
     }
 
-    /* Remove espaçamentos e margens das colunas na sidebar para colá-las */
-    [data-testid="stSidebar"] [data-testid="column"] {
-        padding: 0px !important;
-        margin: 0px !important;
-    }
-    
-    /* Define larguras exatas para as colunas ficarem juntas */
-    [data-testid="stSidebar"] [data-testid="column"]:nth-of-type(1) {
-        width: 82% !important;
-        flex: 82% !important;
+    .medidor-legenda {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+        white-space: nowrap;
     }
 
-    [data-testid="stSidebar"] [data-testid="column"]:nth-of-type(2) {
-        width: 18% !important;
-        flex: 18% !important;
+    .medidor-trilha {
+        position: relative;
+        height: 7px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #2ea043 0%, #d29922 45%, #f0883e 72%, #f85149 100%);
     }
 
-    /* Altura e aspeto unificado para os botões */
-    [data-testid="stSidebar"] div.stButton > button {
-        border-radius: 0px !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    .medidor-indicador {
+        position: absolute;
+        top: 50%;
+        width: 13px;
+        height: 13px;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        background: var(--medidor-cor);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+        transform: translate(-50%, -50%);
+        transition: left 250ms ease, background-color 250ms ease;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) {
+        gap: 0 !important;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) > [data-testid="column"] {
+        padding: 0 !important;
+        margin: 0 !important;
+        min-width: 0;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) div.stButton > button {
+        border: 0 !important;
+        border-radius: 0 !important;
         background-color: transparent !important;
         height: 40px !important;
-        margin: 0px !important;
+        width: 100%;
     }
 
-    /* Arredonda a ponta esquerda e remove a borda direita do título */
-    [data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(1) div.stButton > button {
-        border-top-left-radius: 8px !important;
-        border-bottom-left-radius: 8px !important;
-        border-right: none !important;
-        text-align: left !important;
-        width: 100%;
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) > [data-testid="column"]:first-child div.stButton > button p {
+        text-align: left;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    /* Arredonda a ponta direita e remove a borda esquerda do botão "X" */
-    [data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(2) div.stButton > button {
-        border-top-right-radius: 8px !important;
-        border-bottom-right-radius: 8px !important;
-        border-left: none !important;
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) > [data-testid="column"]:last-child div.stButton > button {
         color: #ff4b4b !important;
         font-weight: bold;
-        width: 100%;
     }
 
-    /* Efeito hover unificado para parecer uma caixa só */
-    [data-testid="stSidebar"] div.stButton > button:hover {
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] div.stButton) div.stButton > button:hover {
         background-color: rgba(255, 255, 255, 0.05) !important;
-        border-color: rgba(255, 255, 255, 0.3) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -116,19 +128,26 @@ if historicos:
     st.sidebar.subheader("Conversas Guardadas")
     
     for sid, dados in list(historicos.items()):
-        # Colunas com gap zero para colar os componentes
-        col_titulo, col_deletar = st.sidebar.columns([0.82, 0.18], gap="small")
+        col_titulo, col_deletar = st.sidebar.columns([0.82, 0.18], gap=None)
         titulo_sessao = dados.get("titulo", "Conversa sem título")
         
-        # Botão esquerdo: Título
-        if col_titulo.button(f"📄 {titulo_sessao}", key=f"select_{sid}"):
+        if col_titulo.button(
+            f"📄 {titulo_sessao}",
+            key=f"select_{sid}",
+            help=titulo_sessao,
+            use_container_width=True,
+        ):
             st.session_state.session_id = sid
             st.session_state.mensagens = dados.get("mensagens", [])
             st.session_state.pergunta_pendente = dados.get("pergunta_pendente")
             st.rerun()
             
-        # Botão direito: "X" colado na mesma moldura
-        if col_deletar.button("✕", key=f"del_{sid}", help="Apagar conversa"):
+        if col_deletar.button(
+            "✕",
+            key=f"del_{sid}",
+            help="Apagar conversa",
+            use_container_width=True,
+        ):
             try:
                 del_res = requests.delete(f"{API_URL}/historicos/{sid}", timeout=5)
                 
@@ -145,6 +164,90 @@ if historicos:
 else:
     st.sidebar.info("Nenhuma conversa guardada.")
 
+with st.sidebar.expander("🧠 Base de respostas e backup"):
+    try:
+        respostas_res = requests.get(f"{API_URL}/respostas", timeout=5)
+        respostas_res.raise_for_status()
+        respostas_salvas = respostas_res.json()
+    except requests.RequestException as e:
+        respostas_salvas = []
+        st.error(f"Não foi possível carregar as respostas: {e}")
+
+    if respostas_salvas:
+        ids_respostas = [item["id"] for item in respostas_salvas]
+        resposta_id = st.selectbox(
+            "Resposta para revisar",
+            options=ids_respostas,
+            format_func=lambda item_id: ", ".join(
+                next(item["perguntas"] for item in respostas_salvas if item["id"] == item_id)
+            )[:50],
+        )
+        resposta_selecionada = next(
+            item for item in respostas_salvas if item["id"] == resposta_id
+        )
+
+        with st.form(f"editar_resposta_{resposta_id}"):
+            perguntas_editadas = st.text_area(
+                "Perguntas (uma por linha)",
+                value="\n".join(resposta_selecionada["perguntas"]),
+            )
+            texto_resposta = st.text_area(
+                "Resposta",
+                value=resposta_selecionada["resposta"],
+            )
+            salvar_edicao = st.form_submit_button(
+                "Salvar alterações",
+                use_container_width=True,
+            )
+
+        if salvar_edicao:
+            try:
+                edicao_res = requests.put(
+                    f"{API_URL}/respostas/{resposta_id}",
+                    json={
+                        "perguntas": perguntas_editadas.splitlines(),
+                        "resposta": texto_resposta,
+                    },
+                    timeout=5,
+                )
+                edicao_res.raise_for_status()
+                st.success("Resposta atualizada.")
+                st.rerun()
+            except requests.RequestException as e:
+                st.error(f"Não foi possível salvar a alteração: {e}")
+
+        confirmar_remocao = st.checkbox("Confirmar remoção desta resposta")
+        if st.button(
+            "Apagar resposta",
+            disabled=not confirmar_remocao,
+            use_container_width=True,
+        ):
+            try:
+                remocao_res = requests.delete(
+                    f"{API_URL}/respostas/{resposta_id}",
+                    timeout=5,
+                )
+                remocao_res.raise_for_status()
+                st.success("Resposta removida.")
+                st.rerun()
+            except requests.RequestException as e:
+                st.error(f"Não foi possível apagar a resposta: {e}")
+    else:
+        st.caption("Ainda não há respostas na base local para revisar.")
+
+    try:
+        backup_res = requests.get(f"{API_URL}/backup", timeout=10)
+        backup_res.raise_for_status()
+        st.download_button(
+            "Baixar backup dos dados",
+            data=backup_res.content,
+            file_name="chatbot-backup.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
+    except requests.RequestException as e:
+        st.error(f"Não foi possível preparar o backup: {e}")
+
 # Restaura uma pergunta ainda não ensinada ao reabrir o app.
 conversa_atual = historicos.get(st.session_state.session_id, {})
 if conversa_atual.get("pergunta_pendente"):
@@ -152,19 +255,41 @@ if conversa_atual.get("pergunta_pendente"):
 
 # --- ÁREA PRINCIPAL DO CHAT ---
 
-# Cálculo do Medidor de Sobrecarga
+# Estima o tamanho do histórico da conversa ativa.
 total_mensagens = len(st.session_state.mensagens)
 total_caracteres = sum(len(m["content"]) for m in st.session_state.mensagens)
+carga = min(1.0, max(total_caracteres / 8000, total_mensagens / 30))
+carga_percentual = round(carga * 100)
+posicao_indicador = min(98, max(2, carga_percentual))
 
-if total_caracteres < 3000 and total_mensagens < 15:
-    status_cor = "#2ea043"
-    status_texto = "🟢 Fluidez: Excelente (Rápido)"
-elif total_caracteres < 8000 and total_mensagens < 30:
-    status_cor = "#d29922"
-    status_texto = "🟡 Carga: Moderada"
+faixas_cor = [
+    (0.0, (46, 160, 67)),
+    (0.45, (210, 153, 34)),
+    (0.72, (240, 136, 62)),
+    (1.0, (248, 81, 73)),
+]
+for indice in range(len(faixas_cor) - 1):
+    inicio, cor_inicio = faixas_cor[indice]
+    fim, cor_fim = faixas_cor[indice + 1]
+    if carga <= fim:
+        proporcao = (carga - inicio) / (fim - inicio)
+        rgb = tuple(
+            round(a + (b - a) * proporcao)
+            for a, b in zip(cor_inicio, cor_fim)
+        )
+        break
 else:
-    status_cor = "#f85149"
-    status_texto = "🔴 Carga: Alta (Pode ficar lento)"
+    rgb = faixas_cor[-1][1]
+status_cor = "#{:02x}{:02x}{:02x}".format(*rgb)
+
+if carga < 0.35:
+    status_texto = "Baixa"
+elif carga < 0.7:
+    status_texto = "Moderada"
+elif carga < 0.9:
+    status_texto = "Elevada"
+else:
+    status_texto = "Alta"
 
 # Cabeçalho com o Medidor no Canto Superior Direito
 col_header_esq, col_header_dir = st.columns([0.65, 0.35])
@@ -175,8 +300,12 @@ with col_header_esq:
 
 with col_header_dir:
     st.markdown(
-        f'<div class="medidor-box" style="border-color: {status_cor}; color: {status_cor};">'
-        f'{status_texto}'
+        f'<div class="medidor-box" title="Indicador do tamanho do histórico desta conversa; não mede a inteligência do chatbot." '
+        f'style="border-color: {status_cor}; --medidor-cor: {status_cor};">'
+        f'<div class="medidor-legenda" style="color: {status_cor};">'
+        f'<span>Histórico: {status_texto}</span><span>{carga_percentual}%</span></div>'
+        f'<div class="medidor-trilha"><span class="medidor-indicador" '
+        f'style="left: {posicao_indicador}%;"></span></div>'
         f'</div>',
         unsafe_allow_html=True
     )

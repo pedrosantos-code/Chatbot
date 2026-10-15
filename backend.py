@@ -2,8 +2,10 @@ import json
 import unicodedata
 import re
 import difflib
+import io
+import zipfile
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 app = FastAPI(
@@ -89,47 +91,63 @@ def buscar_resposta(pergunta: str, respostas: list) -> str | None:
 
     return melhor_resposta if maior_pontuacao >= 0.72 else None
 
-# --- Função Inteligente de Títulos com Salto de Abertura ---
+STOPWORDS_TITULO = {
+    "a", "agora", "ai", "ainda", "algo", "algum", "alguma", "as", "ate", "bem",
+    "boa", "bom", "cada", "cara", "coisa", "com", "como", "consegue", "da", "das",
+    "de", "dela", "dele", "deles", "demais", "depois", "do", "dos", "e", "ela",
+    "elas", "ele", "eles", "em", "entao", "essa", "essas", "esse", "esses", "esta",
+    "estao", "estar", "estas", "estava", "este", "estes", "eu", "foi", "for",
+    "fazer", "faz", "faco", "gostaria", "hoje", "isso", "isto", "ja", "la", "mais",
+    "mas", "me", "mesmo", "meu", "meus", "minha", "minhas", "muito", "na", "nada",
+    "nao", "nas", "nem", "nenhum", "nessa", "nesse", "no", "nos", "nossa", "nosso",
+    "num", "numa", "o", "ola", "olha", "oi", "onde", "ontem", "os", "ou", "para", "pra",
+    "pela", "pelas", "pelo", "pelos", "pode", "podem", "poderia", "por", "porque",
+    "qual", "quando", "quanto", "quase", "quero", "queria", "saber", "se", "sem",
+    "sera", "ser", "seu", "seus", "sim", "sobre", "so", "sou", "tambem", "te",
+    "tem", "tenho", "ter", "teu", "tinha", "tive", "tudo", "tu", "tua", "tuas",
+    "que", "ta", "tava",
+    "um", "uma", "umas", "uns", "vai", "vamos", "vc", "ve", "ver", "vi", "voce",
+    "voces", "vou", "quer", "preciso", "precisa", "ajuda", "ajudar", "diga", "diz",
+    "conte", "explica", "explique", "meu", "minha", "dicas", "dica",
+}
+
+
 def gerar_titulo_inteligente(mensagem: str) -> str:
-    msg = re.sub(r'[^\w\s]', '', mensagem).lower().strip()
-    
-    if not msg:
-        return "Nova Conversa"
+    palavras = re.findall(r"\w+", mensagem.casefold(), flags=re.UNICODE)
+    palavras_finais = []
+    palavras_vistas = set()
 
-    palavras = msg.split()
-    
-    if len(palavras) <= 2:
-        return " ".join([p.capitalize() for p in palavras])
+    for palavra in palavras:
+        normalizada = normalizar_texto(palavra)
+        if len(normalizada) < 3 or normalizada in STOPWORDS_TITULO or normalizada in palavras_vistas:
+            continue
+        palavras_finais.append(palavra.capitalize())
+        palavras_vistas.add(normalizada)
+        if len(palavras_finais) == 5:
+            break
 
-    aberturas_para_ignorar = {"cara", "mano", "eu", "olha", "será", "tinha", "estás", "tu", "vc", "meu", "bem"}
-    
-    while palavras and palavras[0] in aberturas_para_ignorar:
-        palavras.pop(0)
+    return " ".join(palavras_finais) if palavras_finais else "Nova conversa"
 
-    if not palavras:
-        palavras = msg.split()
 
-    stopwords = {
-        "a", "o", "e", "é", "de", "do", "da", "em", "um", "uma", "para", "com", 
-        "não", "os", "as", "no", "na", "por", "mais", "dos", "das", "mas", 
-        "foi", "ao", "ele", "ela", "seu", "sua", "ou", "quando", "muito", 
-        "nos", "já", "também", "só", "pelo", "pela", "até", "esse", "isso", 
-        "num", "numa", "qual", "onde", "meu", "minha", "teu", "tua", "vou", "que",
-        "tava", "tá", "vi", "consegue", "me", "ver", "com", "ir", "dar", "uma", "hoje"
-    }
+def gerar_titulo_conversa(mensagens: list) -> str:
+    mensagens_usuario = [
+        mensagem.get("content", "")
+        for mensagem in mensagens
+        if mensagem.get("role") == "user" and isinstance(mensagem.get("content"), str)
+    ]
+    if not mensagens_usuario:
+        return "Nova conversa"
 
-    palavras_filtradas = [p for p in palavras if p not in stopwords and len(p) > 3]
-    
-    if not palavras_filtradas:
-        palavras_finais = palavras[:3]
-    else:
-        palavras_unicas = []
-        for p in palavras_filtradas:
-            if p not in palavras_unicas:
-                palavras_unicas.append(p)
-        palavras_finais = palavras_unicas[:3]
-
-    return " ".join([p.capitalize() for p in palavras_finais])
+    # Prefere a mensagem com mais palavras úteis, para um "oi" inicial não fixar o título.
+    candidata = max(
+        mensagens_usuario,
+        key=lambda texto: sum(
+            1 for palavra in re.findall(r"\w+", texto.casefold(), flags=re.UNICODE)
+            if len(normalizar_texto(palavra)) >= 3
+            and normalizar_texto(palavra) not in STOPWORDS_TITULO
+        ),
+    )
+    return gerar_titulo_inteligente(candidata)
 
 # --- Modelos Pydantic ---
 class ChatRequest(BaseModel):
@@ -149,6 +167,10 @@ class EnsinoRequest(BaseModel):
 class EnsinoResponse(BaseModel):
     status: str
     mensagem: str
+
+class AtualizarRespostaRequest(BaseModel):
+    perguntas: list[str]
+    resposta: str
 
 # --- Rotas da API ---
 @app.get("/")
@@ -180,6 +202,8 @@ def processar_chat(req: ChatRequest):
         {"role": "user", "content": mensagem_usuario},
         {"role": "assistant", "content": resposta_final},
     ])
+    titulo_sessao = gerar_titulo_conversa(historicos[req.session_id]["mensagens"])
+    historicos[req.session_id]["titulo"] = titulo_sessao
     salvar_historicos_salvos(historicos)
 
     return ChatResponse(
@@ -243,6 +267,80 @@ def ensinar_resposta(req: EnsinoRequest):
 @app.get("/historicos")
 def obter_historicos():
     return carregar_historicos_salvos()
+
+
+@app.get("/respostas")
+def obter_respostas():
+    respostas = carregar_dados().get("respostas", [])
+    resultado = []
+    for indice, item in enumerate(respostas):
+        if not isinstance(item, dict) or not isinstance(item.get("perguntas"), list):
+            continue
+        perguntas = [
+            pergunta.strip()
+            for pergunta in item["perguntas"]
+            if isinstance(pergunta, str) and pergunta.strip()
+        ]
+        resposta = item.get("resposta")
+        if (
+            perguntas
+            and isinstance(resposta, str)
+            and resposta.strip()
+            and not resposta.startswith("Ainda estou a processar informações")
+        ):
+            resultado.append({
+                "id": indice,
+                "perguntas": perguntas,
+                "resposta": resposta,
+            })
+    return resultado
+
+
+@app.put("/respostas/{resposta_id}")
+def atualizar_resposta(resposta_id: int, req: AtualizarRespostaRequest):
+    dados = carregar_dados()
+    respostas = dados.get("respostas", [])
+    if resposta_id < 0 or resposta_id >= len(respostas):
+        raise HTTPException(status_code=404, detail="Resposta não encontrada.")
+
+    perguntas = list(dict.fromkeys(
+        pergunta.strip() for pergunta in req.perguntas if pergunta.strip()
+    ))
+    resposta = req.resposta.strip()
+    if not perguntas or not resposta:
+        raise HTTPException(status_code=422, detail="Informe ao menos uma pergunta e uma resposta.")
+
+    respostas[resposta_id] = {"perguntas": perguntas, "resposta": resposta}
+    salvar_dados(dados)
+    return {"status": "sucesso", "mensagem": "Resposta atualizada."}
+
+
+@app.delete("/respostas/{resposta_id}")
+def deletar_resposta(resposta_id: int):
+    dados = carregar_dados()
+    respostas = dados.get("respostas", [])
+    if resposta_id < 0 or resposta_id >= len(respostas):
+        raise HTTPException(status_code=404, detail="Resposta não encontrada.")
+
+    del respostas[resposta_id]
+    salvar_dados(dados)
+    return {"status": "sucesso", "mensagem": "Resposta removida da base local."}
+
+
+@app.get("/backup")
+def baixar_backup():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as arquivo_zip:
+        for caminho in (ARQUIVO_DADOS, ARQUIVO_HISTORICOS):
+            conteudo = caminho.read_bytes() if caminho.exists() else b"{}\n"
+            arquivo_zip.writestr(caminho.name, conteudo)
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="chatbot-backup.zip"'},
+    )
+
 
 # --- NOVA ROTA: Deletar Sessão do Histórico ---
 @app.delete("/historicos/{session_id}")

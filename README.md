@@ -27,3 +27,17 @@ O aplicativo se comunica apenas com o backend local em `127.0.0.1`. Depois de in
 ## Como o aprendizado funciona
 
 O chatbot procura perguntas semelhantes na base local. Quando não encontra uma resposta confiável, ele pede que você ensine a resposta correta; perguntas desconhecidas não são salvas como respostas falsas. O aprendizado é uma base local de perguntas e respostas, não treinamento autônomo de um modelo de linguagem.
+
+## Revisar respostas e fazer backup
+
+Na barra lateral, abra **Base de respostas e backup** para selecionar uma resposta, editar as perguntas associadas e o texto da resposta, ou apagar uma resposta (a remoção pede confirmação). O botão **Baixar backup dos dados** gera um ZIP com `dados.json` e `historicos.json`. Guarde esse arquivo em outro local. Para restaurar, pare o backend, extraia o ZIP e copie os dois arquivos para a pasta do projeto, substituindo os atuais; depois inicie o backend novamente.
+
+## Testes
+
+Com as dependências instaladas, execute na pasta do projeto:
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Os testes usam arquivos temporários; não alteram os dados reais do projeto.
