@@ -1,4 +1,5 @@
 import uuid
+import unicodedata
 
 import requests
 import streamlit as st
@@ -19,6 +20,74 @@ def iniciar_conversa_nova() -> None:
     st.session_state.pergunta_pendente = None
     st.session_state.confirmacao_pendente = None
     st.session_state.desambiguacao_pendente = None
+
+
+def normalizar_busca(texto: str) -> str:
+    texto = unicodedata.normalize("NFKD", texto.casefold())
+    return "".join(
+        caractere for caractere in texto
+        if not unicodedata.combining(caractere)
+    )
+
+
+def conversa_corresponde(dados: dict, consulta: str) -> bool:
+    termos = normalizar_busca(consulta.strip()).split()
+    if not termos:
+        return True
+
+    conteudo = [dados.get("titulo", "")]
+    conteudo.extend(
+        mensagem.get("content", "")
+        for mensagem in dados.get("mensagens", [])
+        if isinstance(mensagem, dict)
+    )
+    historico_normalizado = normalizar_busca(
+        " ".join(texto for texto in conteudo if isinstance(texto, str))
+    )
+    return all(termo in historico_normalizado for termo in termos)
+
+
+def formatar_conversa(titulo: str, mensagens: list[dict], formato: str) -> str:
+    linhas = [f"# {titulo}"] if formato == "md" else [titulo, "=" * len(titulo)]
+    rotulos = {"user": "Você", "assistant": "Assistente"}
+
+    for mensagem in mensagens:
+        autor = rotulos.get(mensagem.get("role"), mensagem.get("role", "Mensagem"))
+        conteudo = mensagem.get("content", "")
+        if formato == "md":
+            linhas.extend((f"## {autor}", "", conteudo, ""))
+        else:
+            linhas.extend((f"{autor}:", conteudo, ""))
+
+    return "\n".join(linhas).rstrip() + "\n"
+
+
+@st.dialog("Confirmar exclusão")
+def confirmar_exclusao_conversa(session_id: str) -> None:
+    st.warning("Tem certeza de que deseja apagar esta conversa? Esta ação não pode ser desfeita.")
+    coluna_confirmar, coluna_cancelar = st.columns(2)
+
+    if coluna_confirmar.button(
+        "Sim, apagar",
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            resposta = requests.delete(
+                f"{API_URL}/historicos/{session_id}",
+                timeout=5,
+            )
+            resposta.raise_for_status()
+            if st.session_state.session_id == session_id:
+                iniciar_conversa_nova()
+            st.session_state.conversa_para_apagar = None
+            st.rerun()
+        except requests.RequestException as erro:
+            st.error(f"Não foi possível apagar a conversa: {erro}")
+
+    if coluna_cancelar.button("Cancelar", use_container_width=True):
+        st.session_state.conversa_para_apagar = None
+        st.rerun()
 
 
 # --- CSS Avançado para Fundir as Colunas numa Única Caixa Contínua ---
@@ -113,6 +182,7 @@ st.session_state.setdefault("mensagens", [])
 st.session_state.setdefault("pergunta_pendente", None)
 st.session_state.setdefault("confirmacao_pendente", None)
 st.session_state.setdefault("desambiguacao_pendente", None)
+st.session_state.setdefault("conversa_para_apagar", None)
 
 # --- BARRA LATERAL (Histórico e Gestão) ---
 st.sidebar.title("💬 Histórico de Conversas")
@@ -131,10 +201,19 @@ except requests.RequestException as e:
     historicos = {}
     st.sidebar.warning(f"Não foi possível carregar o histórico: {e}")
 
-if historicos:
-    st.sidebar.subheader("Conversas Guardadas")
+st.sidebar.subheader("Conversas Guardadas")
+consulta_historico = st.sidebar.text_input(
+    "Pesquisar no histórico",
+    placeholder="Busque por título ou mensagem",
+)
+conversas_filtradas = {
+    sid: dados
+    for sid, dados in historicos.items()
+    if conversa_corresponde(dados, consulta_historico)
+}
 
-    for sid, dados in historicos.items():
+if conversas_filtradas:
+    for sid, dados in conversas_filtradas.items():
         col_titulo, col_deletar = st.sidebar.columns([0.82, 0.18], gap=None)
         titulo_sessao = dados.get("titulo", "Conversa sem título")
 
@@ -157,19 +236,38 @@ if historicos:
             help="Apagar conversa",
             use_container_width=True,
         ):
-            try:
-                del_res = requests.delete(f"{API_URL}/historicos/{sid}", timeout=5)
-
-                if del_res.status_code == 200:
-                    if st.session_state.session_id == sid:
-                        iniciar_conversa_nova()
-                    st.rerun()
-                else:
-                    st.sidebar.error(f"Erro ao apagar: {del_res.text}")
-            except requests.RequestException as e:
-                st.sidebar.error(f"Erro ao apagar: {e}")
+            st.session_state.conversa_para_apagar = sid
+            st.rerun()
+elif historicos:
+    st.sidebar.info("Nenhuma conversa corresponde à pesquisa.")
 else:
     st.sidebar.info("Nenhuma conversa guardada.")
+
+if st.session_state.conversa_para_apagar:
+    confirmar_exclusao_conversa(st.session_state.conversa_para_apagar)
+
+with st.sidebar.expander("📥 Exportar conversa atual"):
+    formato_exportacao = st.selectbox(
+        "Formato",
+        options=["md", "txt"],
+        format_func=lambda formato: "Markdown (.md)" if formato == "md" else "Texto (.txt)",
+    )
+    titulo_exportacao = historicos.get(
+        st.session_state.session_id, {}
+    ).get("titulo", "Conversa atual")
+    conteudo_exportacao = formatar_conversa(
+        titulo_exportacao,
+        st.session_state.mensagens,
+        formato_exportacao,
+    )
+    st.download_button(
+        f"Baixar conversa .{formato_exportacao}",
+        data=conteudo_exportacao,
+        file_name=f"conversa-atual.{formato_exportacao}",
+        mime="text/markdown" if formato_exportacao == "md" else "text/plain",
+        disabled=not st.session_state.mensagens,
+        use_container_width=True,
+    )
 
 with st.sidebar.expander("🧠 Base de respostas e backup"):
     try:

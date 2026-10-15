@@ -32,9 +32,11 @@ Quando uma pergunta fica parecida, mas não suficientemente próxima de uma perg
 
 Se duas respostas diferentes tiverem pontuações de similaridade próximas, o chatbot pede que você escolha uma opção em vez de decidir sozinho. Sua escolha também ensina essa nova forma de perguntar.
 
-## Revisar respostas e fazer backup
+## Histórico, exportação e backup
 
-Na barra lateral, abra **Base de respostas e backup** para selecionar uma resposta, editar as perguntas associadas e o texto da resposta, ou apagar uma resposta (a remoção pede confirmação). O botão **Baixar backup dos dados** gera um ZIP com `dados.json` e `historicos.json`. Guarde esse arquivo em outro local. Para restaurar, pare o backend, extraia o ZIP e copie os dois arquivos para a pasta do projeto, substituindo os atuais; depois inicie o backend novamente.
+Na barra lateral, pesquise conversas por palavras do título ou das mensagens. A lixeira abre uma confirmação antes de apagar. Em **Exportar conversa atual**, baixe a conversa aberta em Markdown (`.md`) ou texto (`.txt`).
+
+Abra **Base de respostas e backup** para selecionar uma resposta, editar as perguntas associadas e o texto da resposta, ou apagar uma resposta (a remoção pede confirmação). O botão **Baixar backup dos dados** gera um ZIP com `dados.json` e `historicos.json`. Guarde esse arquivo em outro local. Para restaurar, pare o backend, extraia o ZIP e copie os dois arquivos para a pasta do projeto, substituindo os atuais; depois inicie o backend novamente.
 
 ## Testes
 
