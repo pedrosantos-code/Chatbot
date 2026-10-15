@@ -30,6 +30,8 @@ O chatbot procura perguntas semelhantes na base local. Quando não encontra uma 
 
 Quando uma pergunta fica parecida, mas não suficientemente próxima de uma pergunta aprendida, o chatbot mostra a resposta candidata e pede confirmação. Ao confirmar, salva a nova forma da pergunta como alternativa; se não servir, você pode ensinar a resposta certa. A similaridade é uma heurística textual local, não uma garantia de que a resposta está correta.
 
+Se duas respostas diferentes tiverem pontuações de similaridade próximas, o chatbot pede que você escolha uma opção em vez de decidir sozinho. Sua escolha também ensina essa nova forma de perguntar.
+
 ## Revisar respostas e fazer backup
 
 Na barra lateral, abra **Base de respostas e backup** para selecionar uma resposta, editar as perguntas associadas e o texto da resposta, ou apagar uma resposta (a remoção pede confirmação). O botão **Baixar backup dos dados** gera um ZIP com `dados.json` e `historicos.json`. Guarde esse arquivo em outro local. Para restaurar, pare o backend, extraia o ZIP e copie os dois arquivos para a pasta do projeto, substituindo os atuais; depois inicie o backend novamente.

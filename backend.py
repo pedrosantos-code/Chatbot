@@ -20,6 +20,7 @@ ARQUIVO_HISTORICOS = PASTA_DADOS / "historicos.json"
 RESPOSTA_DESCONHECIDA = "Ainda não sei responder isso. Você pode me ensinar uma resposta abaixo."
 LIMIAR_RESPOSTA_DIRETA = 0.86
 LIMIAR_RESPOSTA_PARECIDA = 0.58
+MARGEM_AMBIGUIDADE = 0.08
 
 
 def carregar_json(caminho: Path, padrao):
@@ -58,10 +59,9 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^\w\s]", " ", texto).strip()
 
 
-def buscar_melhor_correspondencia(pergunta: str, respostas: list) -> dict | None:
+def buscar_correspondencias(pergunta: str, respostas: list) -> list[dict]:
     pergunta_normalizada = normalizar_texto(pergunta)
-    melhor_correspondencia = None
-    maior_pontuacao = 0.0
+    por_resposta = {}
 
     for item in respostas:
         if not isinstance(item, dict):
@@ -77,33 +77,62 @@ def buscar_melhor_correspondencia(pergunta: str, respostas: list) -> dict | None
             if not salva_normalizada:
                 continue
             if pergunta_normalizada == salva_normalizada:
-                return {
-                    "pergunta_base": pergunta_salva,
-                    "resposta": resposta,
-                    "pontuacao": 1.0,
-                }
+                pontuacao = 1.0
+            else:
+                palavras_pergunta = set(pergunta_normalizada.split())
+                palavras_salvas = set(salva_normalizada.split())
+                uniao = palavras_pergunta | palavras_salvas
+                similaridade_palavras = (
+                    len(palavras_pergunta & palavras_salvas) / len(uniao) if uniao else 0.0
+                )
+                similaridade_texto = difflib.SequenceMatcher(
+                    None, pergunta_normalizada, salva_normalizada, autojunk=False
+                ).ratio()
+                pontuacao = 0.7 * similaridade_texto + 0.3 * similaridade_palavras
 
-            palavras_pergunta = set(pergunta_normalizada.split())
-            palavras_salvas = set(salva_normalizada.split())
-            uniao = palavras_pergunta | palavras_salvas
-            similaridade_palavras = len(palavras_pergunta & palavras_salvas) / len(uniao) if uniao else 0.0
-            similaridade_texto = difflib.SequenceMatcher(
-                None, pergunta_normalizada, salva_normalizada, autojunk=False
-            ).ratio()
-            pontuacao = 0.7 * similaridade_texto + 0.3 * similaridade_palavras
-            if pontuacao > maior_pontuacao:
-                maior_pontuacao = pontuacao
-                melhor_correspondencia = {
-                    "pergunta_base": pergunta_salva,
-                    "resposta": resposta,
-                    "pontuacao": pontuacao,
-                }
+            correspondencia = {
+                "pergunta_base": pergunta_salva,
+                "resposta": resposta,
+                "pontuacao": pontuacao,
+            }
+            atual = por_resposta.get(resposta)
+            if atual is None or pontuacao > atual["pontuacao"]:
+                por_resposta[resposta] = correspondencia
 
-    return melhor_correspondencia
+    return sorted(por_resposta.values(), key=lambda item: item["pontuacao"], reverse=True)
+
+
+def buscar_melhor_correspondencia(pergunta: str, respostas: list) -> dict | None:
+    correspondencias = buscar_correspondencias(pergunta, respostas)
+    return correspondencias[0] if correspondencias else None
+
+
+def correspondencias_ambiguas(correspondencias: list[dict]) -> list[dict]:
+    if len(correspondencias) < 2:
+        return []
+
+    melhor_pontuacao = correspondencias[0]["pontuacao"]
+    segunda_pontuacao = correspondencias[1]["pontuacao"]
+    if (
+        melhor_pontuacao < LIMIAR_RESPOSTA_PARECIDA
+        or segunda_pontuacao < LIMIAR_RESPOSTA_PARECIDA
+        or melhor_pontuacao - segunda_pontuacao > MARGEM_AMBIGUIDADE
+    ):
+        return []
+
+    return [
+        correspondencia
+        for correspondencia in correspondencias
+        if correspondencia["pontuacao"] >= LIMIAR_RESPOSTA_PARECIDA
+        and melhor_pontuacao - correspondencia["pontuacao"] <= MARGEM_AMBIGUIDADE
+    ][:3]
 
 
 def buscar_resposta(pergunta: str, respostas: list) -> str | None:
-    correspondencia = buscar_melhor_correspondencia(pergunta, respostas)
+    correspondencias = buscar_correspondencias(pergunta, respostas)
+    if correspondencias_ambiguas(correspondencias):
+        return None
+    correspondencia = correspondencias[0] if correspondencias else None
     if correspondencia and correspondencia["pontuacao"] >= LIMIAR_RESPOSTA_DIRETA:
         return correspondencia["resposta"]
     return None
@@ -176,6 +205,8 @@ class ChatResponse(BaseModel):
     titulo_sessao: str
     precisa_ensino: bool
     precisa_confirmacao: bool = False
+    precisa_desambiguacao: bool = False
+    respostas_candidatas: list[dict]
 
 class EnsinoRequest(BaseModel):
     session_id: str
@@ -194,6 +225,10 @@ class ConfirmarRespostaRequest(BaseModel):
     session_id: str
     aceita: bool
 
+class DesambiguarRespostaRequest(BaseModel):
+    session_id: str
+    indice: int
+
 # --- Rotas da API ---
 @app.get("/")
 def home():
@@ -205,15 +240,25 @@ def processar_chat(req: ChatRequest):
     if not mensagem_usuario:
         raise HTTPException(status_code=422, detail="A mensagem não pode ficar vazia.")
 
-    correspondencia = buscar_melhor_correspondencia(
+    correspondencias = buscar_correspondencias(
         mensagem_usuario, carregar_dados().get("respostas", [])
     )
+    correspondencia = correspondencias[0] if correspondencias else None
+    candidatas_ambiguas = correspondencias_ambiguas(correspondencias)
+    precisa_desambiguacao = bool(candidatas_ambiguas)
     precisa_confirmacao = bool(
+        not precisa_desambiguacao
+        and
         correspondencia
         and LIMIAR_RESPOSTA_PARECIDA <= correspondencia["pontuacao"] < LIMIAR_RESPOSTA_DIRETA
     )
-    precisa_ensino = not correspondencia or correspondencia["pontuacao"] < LIMIAR_RESPOSTA_PARECIDA
-    if precisa_confirmacao:
+    precisa_ensino = (
+        not precisa_desambiguacao
+        and (not correspondencia or correspondencia["pontuacao"] < LIMIAR_RESPOSTA_PARECIDA)
+    )
+    if precisa_desambiguacao:
+        resposta_final = "Encontrei mais de uma resposta parecida. Escolha a que melhor responde à sua pergunta."
+    elif precisa_confirmacao:
         resposta_final = correspondencia["resposta"]
     elif precisa_ensino:
         resposta_final = RESPOSTA_DESCONHECIDA
@@ -230,6 +275,14 @@ def processar_chat(req: ChatRequest):
     if precisa_ensino:
         historicos[req.session_id]["pergunta_pendente"] = mensagem_usuario
         historicos[req.session_id].pop("confirmacao_pendente", None)
+        historicos[req.session_id].pop("desambiguacao_pendente", None)
+    elif precisa_desambiguacao:
+        historicos[req.session_id]["desambiguacao_pendente"] = {
+            "pergunta": mensagem_usuario,
+            "candidatas": candidatas_ambiguas,
+        }
+        historicos[req.session_id].pop("pergunta_pendente", None)
+        historicos[req.session_id].pop("confirmacao_pendente", None)
     elif precisa_confirmacao:
         historicos[req.session_id]["confirmacao_pendente"] = {
             "pergunta": mensagem_usuario,
@@ -237,9 +290,11 @@ def processar_chat(req: ChatRequest):
             "resposta": correspondencia["resposta"],
         }
         historicos[req.session_id].pop("pergunta_pendente", None)
+        historicos[req.session_id].pop("desambiguacao_pendente", None)
     else:
         historicos[req.session_id].pop("pergunta_pendente", None)
         historicos[req.session_id].pop("confirmacao_pendente", None)
+        historicos[req.session_id].pop("desambiguacao_pendente", None)
 
     historicos[req.session_id]["mensagens"].extend([
         {"role": "user", "content": mensagem_usuario},
@@ -254,7 +309,59 @@ def processar_chat(req: ChatRequest):
         titulo_sessao=titulo_sessao,
         precisa_ensino=precisa_ensino,
         precisa_confirmacao=precisa_confirmacao,
+        precisa_desambiguacao=precisa_desambiguacao,
+        respostas_candidatas=candidatas_ambiguas,
     )
+
+
+@app.post("/desambiguar-resposta")
+def desambiguar_resposta(req: DesambiguarRespostaRequest):
+    historicos = carregar_historicos_salvos()
+    conversa = historicos.get(req.session_id)
+    pendente = conversa.get("desambiguacao_pendente") if conversa else None
+    if not pendente:
+        raise HTTPException(status_code=404, detail="Não há respostas aguardando escolha.")
+
+    candidatas = pendente.get("candidatas", [])
+    if req.indice < 0 or req.indice >= len(candidatas):
+        raise HTTPException(status_code=422, detail="A opção selecionada não existe.")
+
+    escolhida = candidatas[req.indice]
+    dados = carregar_dados()
+    entrada = next(
+        (
+            item for item in dados.get("respostas", [])
+            if isinstance(item, dict)
+            and item.get("resposta") == escolhida["resposta"]
+            and any(
+                isinstance(pergunta, str)
+                and normalizar_texto(pergunta) == normalizar_texto(escolhida["pergunta_base"])
+                for pergunta in item.get("perguntas", [])
+            )
+        ),
+        None,
+    )
+    if not entrada:
+        raise HTTPException(
+            status_code=409,
+            detail="A resposta selecionada mudou na base. Faça uma nova pergunta.",
+        )
+
+    pergunta = pendente["pergunta"]
+    if not any(
+        isinstance(pergunta_salva, str)
+        and normalizar_texto(pergunta_salva) == normalizar_texto(pergunta)
+        for pergunta_salva in entrada.get("perguntas", [])
+    ):
+        entrada.setdefault("perguntas", []).append(pergunta)
+        salvar_dados(dados)
+
+    conversa.pop("desambiguacao_pendente", None)
+    mensagens = conversa.get("mensagens", [])
+    if mensagens and mensagens[-1].get("role") == "assistant":
+        mensagens[-1]["content"] = escolhida["resposta"]
+    salvar_historicos_salvos(historicos)
+    return {"status": "sucesso", "resposta": escolhida["resposta"]}
 
 
 @app.post("/confirmar-resposta")

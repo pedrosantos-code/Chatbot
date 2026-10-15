@@ -108,6 +108,9 @@ if "pergunta_pendente" not in st.session_state:
 if "confirmacao_pendente" not in st.session_state:
     st.session_state.confirmacao_pendente = None
 
+if "desambiguacao_pendente" not in st.session_state:
+    st.session_state.desambiguacao_pendente = None
+
 # --- BARRA LATERAL (Histórico e Gestão) ---
 st.sidebar.title("💬 Histórico de Conversas")
 
@@ -116,6 +119,7 @@ if st.sidebar.button("➕ Nova Conversa", use_container_width=True):
     st.session_state.mensagens = []
     st.session_state.pergunta_pendente = None
     st.session_state.confirmacao_pendente = None
+    st.session_state.desambiguacao_pendente = None
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -145,6 +149,7 @@ if historicos:
             st.session_state.mensagens = dados.get("mensagens", [])
             st.session_state.pergunta_pendente = dados.get("pergunta_pendente")
             st.session_state.confirmacao_pendente = dados.get("confirmacao_pendente")
+            st.session_state.desambiguacao_pendente = dados.get("desambiguacao_pendente")
             st.rerun()
             
         if col_deletar.button(
@@ -162,6 +167,7 @@ if historicos:
                         st.session_state.mensagens = []
                         st.session_state.pergunta_pendente = None
                         st.session_state.confirmacao_pendente = None
+                        st.session_state.desambiguacao_pendente = None
                     st.rerun()
                 else:
                     st.sidebar.error(f"Erro ao apagar: {del_res.text}")
@@ -258,6 +264,7 @@ with st.sidebar.expander("🧠 Base de respostas e backup"):
 conversa_atual = historicos.get(st.session_state.session_id, {})
 st.session_state.pergunta_pendente = conversa_atual.get("pergunta_pendente")
 st.session_state.confirmacao_pendente = conversa_atual.get("confirmacao_pendente")
+st.session_state.desambiguacao_pendente = conversa_atual.get("desambiguacao_pendente")
 
 # --- ÁREA PRINCIPAL DO CHAT ---
 
@@ -322,6 +329,45 @@ st.markdown("---")
 for msg in st.session_state.mensagens:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
+
+if st.session_state.desambiguacao_pendente:
+    pendente = st.session_state.desambiguacao_pendente
+    st.info(f"Encontrei respostas diferentes para: **{pendente['pergunta']}**. Qual delas você quis dizer?")
+    candidatas = pendente.get("candidatas", [])
+    if candidatas:
+        with st.form(f"desambiguar_{st.session_state.session_id}"):
+            indice_escolhido = st.radio(
+                "Escolha a resposta mais adequada",
+                options=range(len(candidatas)),
+                format_func=lambda indice: (
+                    f"{candidatas[indice]['pergunta_base']}: "
+                    f"{candidatas[indice]['resposta'][:180]}"
+                ),
+            )
+            escolher_resposta = st.form_submit_button(
+                "Usar esta resposta",
+                use_container_width=True,
+            )
+
+        if escolher_resposta:
+            try:
+                selecao_res = requests.post(
+                    f"{API_URL}/desambiguar-resposta",
+                    json={
+                        "session_id": st.session_state.session_id,
+                        "indice": indice_escolhido,
+                    },
+                    timeout=5,
+                )
+                selecao_res.raise_for_status()
+                dados_selecao = selecao_res.json()
+                if st.session_state.mensagens and st.session_state.mensagens[-1]["role"] == "assistant":
+                    st.session_state.mensagens[-1]["content"] = dados_selecao["resposta"]
+                st.session_state.desambiguacao_pendente = None
+                st.toast("Obrigado! Vou lembrar que essa pergunta corresponde a esta resposta.")
+                st.rerun()
+            except requests.RequestException as e:
+                st.error(f"Não foi possível registrar sua escolha: {e}")
 
 if st.session_state.confirmacao_pendente:
     st.info("Encontrei essa resposta por semelhança. Ela responde à sua pergunta?")
@@ -402,7 +448,11 @@ if st.session_state.pergunta_pendente:
 # Caixa de texto para envio de mensagens
 if prompt := st.chat_input(
     "Escreve a tua mensagem...",
-    disabled=bool(st.session_state.confirmacao_pendente),
+    disabled=bool(
+        st.session_state.confirmacao_pendente
+        or st.session_state.desambiguacao_pendente
+        or st.session_state.pergunta_pendente
+    ),
 ):
     payload = {
         "session_id": st.session_state.session_id,
@@ -423,8 +473,17 @@ if prompt := st.chat_input(
             st.write(resposta_bot)
 
         st.session_state.mensagens.append({"role": "assistant", "content": resposta_bot})
-        if dados_resposta["precisa_ensino"]:
+        if dados_resposta["precisa_desambiguacao"]:
+            st.session_state.desambiguacao_pendente = {
+                "pergunta": prompt,
+                "candidatas": dados_resposta["respostas_candidatas"],
+            }
+        elif dados_resposta["precisa_ensino"]:
             st.session_state.pergunta_pendente = prompt
+        elif dados_resposta["precisa_confirmacao"]:
+            st.session_state.confirmacao_pendente = {
+                "pergunta": prompt,
+            }
         st.rerun()
     except requests.RequestException as e:
         st.error(f"Não foi possível conectar ao servidor backend: {e}")

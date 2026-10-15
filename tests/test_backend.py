@@ -161,7 +161,89 @@ class BackendPersistenceTests(unittest.TestCase):
             backend.ChatRequest(session_id="session-1", mensagem="qual seu nome")
         )
         self.assertFalse(response.precisa_confirmacao)
+        self.assertFalse(response.precisa_desambiguacao)
         self.assertFalse(response.precisa_ensino)
+
+    def test_ambiguous_matches_ask_user_to_choose(self):
+        backend.salvar_dados({
+            "respostas": [
+                {
+                    "perguntas": ["como trocar senha wifi"],
+                    "resposta": "Abra as configurações do roteador.",
+                },
+                {
+                    "perguntas": ["como trocar senha celular"],
+                    "resposta": "Abra as configurações do celular.",
+                },
+            ]
+        })
+
+        response = backend.processar_chat(
+            backend.ChatRequest(session_id="session-1", mensagem="como trocar senha")
+        )
+        self.assertTrue(response.precisa_desambiguacao)
+        self.assertFalse(response.precisa_confirmacao)
+        self.assertFalse(response.precisa_ensino)
+        self.assertEqual(len(response.respostas_candidatas), 2)
+
+        history = backend.carregar_historicos_salvos()["session-1"]
+        self.assertEqual(
+            history["desambiguacao_pendente"]["pergunta"],
+            "como trocar senha",
+        )
+
+    def test_choosing_ambiguous_match_learns_alias_for_selected_answer(self):
+        backend.salvar_dados({
+            "respostas": [
+                {
+                    "perguntas": ["como trocar senha wifi"],
+                    "resposta": "Abra as configurações do roteador.",
+                },
+                {
+                    "perguntas": ["como trocar senha celular"],
+                    "resposta": "Abra as configurações do celular.",
+                },
+            ]
+        })
+        response = backend.processar_chat(
+            backend.ChatRequest(session_id="session-1", mensagem="como trocar senha")
+        )
+        chosen_index = next(
+            index for index, candidate in enumerate(response.respostas_candidatas)
+            if candidate["resposta"] == "Abra as configurações do celular."
+        )
+
+        result = backend.desambiguar_resposta(
+            backend.DesambiguarRespostaRequest(
+                session_id="session-1",
+                indice=chosen_index,
+            )
+        )
+        self.assertEqual(result["resposta"], "Abra as configurações do celular.")
+        self.assertIn(
+            "como trocar senha",
+            backend.carregar_dados()["respostas"][1]["perguntas"],
+        )
+        self.assertNotIn(
+            "desambiguacao_pendente",
+            backend.carregar_historicos_salvos()["session-1"],
+        )
+
+        repeated = backend.processar_chat(
+            backend.ChatRequest(session_id="session-2", mensagem="como trocar senha")
+        )
+        self.assertFalse(repeated.precisa_desambiguacao)
+        self.assertEqual(repeated.resposta, "Abra as configurações do celular.")
+
+    def test_ambiguity_does_not_trigger_when_one_answer_is_clearly_better(self):
+        matches = backend.buscar_correspondencias(
+            "qual seu nome?",
+            [
+                {"perguntas": ["qual seu nome?"], "resposta": "Resposta correta."},
+                {"perguntas": ["qual a previsão do tempo amanhã?"], "resposta": "Outra resposta."},
+            ],
+        )
+        self.assertEqual(backend.correspondencias_ambiguas(matches), [])
 
     def test_backup_contains_data_and_history_files(self):
         response = backend.baixar_backup()
