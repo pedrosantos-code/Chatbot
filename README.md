@@ -28,6 +28,8 @@ O aplicativo se comunica apenas com o backend local em `127.0.0.1`. Depois de in
 
 O chatbot procura perguntas semelhantes na base local. Quando não encontra uma resposta confiável, ele pede que você ensine a resposta correta; perguntas desconhecidas não são salvas como respostas falsas. O aprendizado é uma base local de perguntas e respostas, não treinamento autônomo de um modelo de linguagem.
 
+Quando uma pergunta fica parecida, mas não suficientemente próxima de uma pergunta aprendida, o chatbot mostra a resposta candidata e pede confirmação. Ao confirmar, salva a nova forma da pergunta como alternativa; se não servir, você pode ensinar a resposta certa. A similaridade é uma heurística textual local, não uma garantia de que a resposta está correta.
+
 ## Revisar respostas e fazer backup
 
 Na barra lateral, abra **Base de respostas e backup** para selecionar uma resposta, editar as perguntas associadas e o texto da resposta, ou apagar uma resposta (a remoção pede confirmação). O botão **Baixar backup dos dados** gera um ZIP com `dados.json` e `historicos.json`. Guarde esse arquivo em outro local. Para restaurar, pare o backend, extraia o ZIP e copie os dois arquivos para a pasta do projeto, substituindo os atuais; depois inicie o backend novamente.

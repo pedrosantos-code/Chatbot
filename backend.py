@@ -18,6 +18,8 @@ PASTA_DADOS = Path(__file__).resolve().parent
 ARQUIVO_DADOS = PASTA_DADOS / "dados.json"
 ARQUIVO_HISTORICOS = PASTA_DADOS / "historicos.json"
 RESPOSTA_DESCONHECIDA = "Ainda não sei responder isso. Você pode me ensinar uma resposta abaixo."
+LIMIAR_RESPOSTA_DIRETA = 0.86
+LIMIAR_RESPOSTA_PARECIDA = 0.58
 
 
 def carregar_json(caminho: Path, padrao):
@@ -56,9 +58,9 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^\w\s]", " ", texto).strip()
 
 
-def buscar_resposta(pergunta: str, respostas: list) -> str | None:
+def buscar_melhor_correspondencia(pergunta: str, respostas: list) -> dict | None:
     pergunta_normalizada = normalizar_texto(pergunta)
-    melhor_resposta = None
+    melhor_correspondencia = None
     maior_pontuacao = 0.0
 
     for item in respostas:
@@ -75,7 +77,11 @@ def buscar_resposta(pergunta: str, respostas: list) -> str | None:
             if not salva_normalizada:
                 continue
             if pergunta_normalizada == salva_normalizada:
-                return resposta
+                return {
+                    "pergunta_base": pergunta_salva,
+                    "resposta": resposta,
+                    "pontuacao": 1.0,
+                }
 
             palavras_pergunta = set(pergunta_normalizada.split())
             palavras_salvas = set(salva_normalizada.split())
@@ -87,9 +93,20 @@ def buscar_resposta(pergunta: str, respostas: list) -> str | None:
             pontuacao = 0.7 * similaridade_texto + 0.3 * similaridade_palavras
             if pontuacao > maior_pontuacao:
                 maior_pontuacao = pontuacao
-                melhor_resposta = resposta
+                melhor_correspondencia = {
+                    "pergunta_base": pergunta_salva,
+                    "resposta": resposta,
+                    "pontuacao": pontuacao,
+                }
 
-    return melhor_resposta if maior_pontuacao >= 0.72 else None
+    return melhor_correspondencia
+
+
+def buscar_resposta(pergunta: str, respostas: list) -> str | None:
+    correspondencia = buscar_melhor_correspondencia(pergunta, respostas)
+    if correspondencia and correspondencia["pontuacao"] >= LIMIAR_RESPOSTA_DIRETA:
+        return correspondencia["resposta"]
+    return None
 
 STOPWORDS_TITULO = {
     "a", "agora", "ai", "ainda", "algo", "algum", "alguma", "as", "ate", "bem",
@@ -158,6 +175,7 @@ class ChatResponse(BaseModel):
     resposta: str
     titulo_sessao: str
     precisa_ensino: bool
+    precisa_confirmacao: bool = False
 
 class EnsinoRequest(BaseModel):
     session_id: str
@@ -172,6 +190,10 @@ class AtualizarRespostaRequest(BaseModel):
     perguntas: list[str]
     resposta: str
 
+class ConfirmarRespostaRequest(BaseModel):
+    session_id: str
+    aceita: bool
+
 # --- Rotas da API ---
 @app.get("/")
 def home():
@@ -183,10 +205,20 @@ def processar_chat(req: ChatRequest):
     if not mensagem_usuario:
         raise HTTPException(status_code=422, detail="A mensagem não pode ficar vazia.")
 
-    resposta_final = buscar_resposta(mensagem_usuario, carregar_dados().get("respostas", []))
-    precisa_ensino = resposta_final is None
-    if precisa_ensino:
+    correspondencia = buscar_melhor_correspondencia(
+        mensagem_usuario, carregar_dados().get("respostas", [])
+    )
+    precisa_confirmacao = bool(
+        correspondencia
+        and LIMIAR_RESPOSTA_PARECIDA <= correspondencia["pontuacao"] < LIMIAR_RESPOSTA_DIRETA
+    )
+    precisa_ensino = not correspondencia or correspondencia["pontuacao"] < LIMIAR_RESPOSTA_PARECIDA
+    if precisa_confirmacao:
+        resposta_final = correspondencia["resposta"]
+    elif precisa_ensino:
         resposta_final = RESPOSTA_DESCONHECIDA
+    else:
+        resposta_final = correspondencia["resposta"]
 
     historicos = carregar_historicos_salvos()
     if req.session_id not in historicos:
@@ -197,6 +229,17 @@ def processar_chat(req: ChatRequest):
 
     if precisa_ensino:
         historicos[req.session_id]["pergunta_pendente"] = mensagem_usuario
+        historicos[req.session_id].pop("confirmacao_pendente", None)
+    elif precisa_confirmacao:
+        historicos[req.session_id]["confirmacao_pendente"] = {
+            "pergunta": mensagem_usuario,
+            "pergunta_base": correspondencia["pergunta_base"],
+            "resposta": correspondencia["resposta"],
+        }
+        historicos[req.session_id].pop("pergunta_pendente", None)
+    else:
+        historicos[req.session_id].pop("pergunta_pendente", None)
+        historicos[req.session_id].pop("confirmacao_pendente", None)
 
     historicos[req.session_id]["mensagens"].extend([
         {"role": "user", "content": mensagem_usuario},
@@ -210,7 +253,63 @@ def processar_chat(req: ChatRequest):
         resposta=resposta_final,
         titulo_sessao=titulo_sessao,
         precisa_ensino=precisa_ensino,
+        precisa_confirmacao=precisa_confirmacao,
     )
+
+
+@app.post("/confirmar-resposta")
+def confirmar_resposta(req: ConfirmarRespostaRequest):
+    historicos = carregar_historicos_salvos()
+    conversa = historicos.get(req.session_id)
+    pendente = conversa.get("confirmacao_pendente") if conversa else None
+    if not pendente:
+        raise HTTPException(status_code=404, detail="Não há resposta aguardando confirmação.")
+
+    if req.aceita:
+        dados = carregar_dados()
+        entrada = next(
+            (
+                item for item in dados.get("respostas", [])
+                if isinstance(item, dict)
+                and item.get("resposta") == pendente["resposta"]
+                and any(
+                    isinstance(pergunta, str)
+                    and normalizar_texto(pergunta) == normalizar_texto(pendente["pergunta_base"])
+                    for pergunta in item.get("perguntas", [])
+                )
+            ),
+            None,
+        )
+        if not entrada:
+            raise HTTPException(
+                status_code=409,
+                detail="A resposta sugerida mudou na base. Revise ou ensine uma resposta nova.",
+            )
+
+        pergunta_normalizada = normalizar_texto(pendente["pergunta"])
+        if not any(
+            isinstance(pergunta, str) and normalizar_texto(pergunta) == pergunta_normalizada
+            for pergunta in entrada.get("perguntas", [])
+        ):
+            entrada.setdefault("perguntas", []).append(pendente["pergunta"])
+            salvar_dados(dados)
+
+        mensagem_final = "Entendi! Vou reconhecer essa forma de perguntar também."
+    else:
+        conversa["pergunta_pendente"] = pendente["pergunta"]
+        mensagem_final = RESPOSTA_DESCONHECIDA
+
+    conversa.pop("confirmacao_pendente", None)
+    mensagens = conversa.get("mensagens", [])
+    if mensagens and mensagens[-1].get("role") == "assistant":
+        mensagens[-1]["content"] = mensagem_final
+    salvar_historicos_salvos(historicos)
+
+    return {
+        "status": "sucesso",
+        "mensagem": mensagem_final,
+        "precisa_ensino": not req.aceita,
+    }
 
 
 @app.post("/ensinar", response_model=EnsinoResponse)

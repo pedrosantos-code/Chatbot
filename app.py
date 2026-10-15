@@ -105,6 +105,9 @@ if "mensagens" not in st.session_state:
 if "pergunta_pendente" not in st.session_state:
     st.session_state.pergunta_pendente = None
 
+if "confirmacao_pendente" not in st.session_state:
+    st.session_state.confirmacao_pendente = None
+
 # --- BARRA LATERAL (Histórico e Gestão) ---
 st.sidebar.title("💬 Histórico de Conversas")
 
@@ -112,6 +115,7 @@ if st.sidebar.button("➕ Nova Conversa", use_container_width=True):
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.mensagens = []
     st.session_state.pergunta_pendente = None
+    st.session_state.confirmacao_pendente = None
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -140,6 +144,7 @@ if historicos:
             st.session_state.session_id = sid
             st.session_state.mensagens = dados.get("mensagens", [])
             st.session_state.pergunta_pendente = dados.get("pergunta_pendente")
+            st.session_state.confirmacao_pendente = dados.get("confirmacao_pendente")
             st.rerun()
             
         if col_deletar.button(
@@ -156,6 +161,7 @@ if historicos:
                         st.session_state.session_id = str(uuid.uuid4())
                         st.session_state.mensagens = []
                         st.session_state.pergunta_pendente = None
+                        st.session_state.confirmacao_pendente = None
                     st.rerun()
                 else:
                     st.sidebar.error(f"Erro ao apagar: {del_res.text}")
@@ -250,8 +256,8 @@ with st.sidebar.expander("🧠 Base de respostas e backup"):
 
 # Restaura uma pergunta ainda não ensinada ao reabrir o app.
 conversa_atual = historicos.get(st.session_state.session_id, {})
-if conversa_atual.get("pergunta_pendente"):
-    st.session_state.pergunta_pendente = conversa_atual["pergunta_pendente"]
+st.session_state.pergunta_pendente = conversa_atual.get("pergunta_pendente")
+st.session_state.confirmacao_pendente = conversa_atual.get("confirmacao_pendente")
 
 # --- ÁREA PRINCIPAL DO CHAT ---
 
@@ -317,6 +323,46 @@ for msg in st.session_state.mensagens:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
+if st.session_state.confirmacao_pendente:
+    st.info("Encontrei essa resposta por semelhança. Ela responde à sua pergunta?")
+    confirmar_coluna, negar_coluna = st.columns(2)
+    confirmar_match = confirmar_coluna.button(
+        "👍 Sim, serve",
+        key=f"confirmar_{st.session_state.session_id}",
+        use_container_width=True,
+    )
+    negar_match = negar_coluna.button(
+        "👎 Não, ensinar outra",
+        key=f"negar_{st.session_state.session_id}",
+        use_container_width=True,
+    )
+
+    if confirmar_match or negar_match:
+        try:
+            avaliacao = requests.post(
+                f"{API_URL}/confirmar-resposta",
+                json={
+                    "session_id": st.session_state.session_id,
+                    "aceita": confirmar_match,
+                },
+                timeout=5,
+            )
+            avaliacao.raise_for_status()
+            dados_avaliacao = avaliacao.json()
+            if st.session_state.mensagens and st.session_state.mensagens[-1]["role"] == "assistant":
+                st.session_state.mensagens[-1]["content"] = dados_avaliacao["mensagem"]
+            pergunta_confirmada = st.session_state.confirmacao_pendente["pergunta"]
+            st.session_state.confirmacao_pendente = None
+            st.session_state.pergunta_pendente = (
+                pergunta_confirmada
+                if dados_avaliacao["precisa_ensino"]
+                else None
+            )
+            st.toast(dados_avaliacao["mensagem"])
+            st.rerun()
+        except requests.RequestException as e:
+            st.error(f"Não foi possível registrar sua avaliação: {e}")
+
 # Permite ensinar uma resposta sem adicionar conteúdo inventado à base de conhecimento.
 if st.session_state.pergunta_pendente:
     st.info(f"Ainda não sei responder: **{st.session_state.pergunta_pendente}**")
@@ -354,7 +400,10 @@ if st.session_state.pergunta_pendente:
             st.error(f"Não foi possível salvar o que você ensinou: {e}")
 
 # Caixa de texto para envio de mensagens
-if prompt := st.chat_input("Escreve a tua mensagem..."):
+if prompt := st.chat_input(
+    "Escreve a tua mensagem...",
+    disabled=bool(st.session_state.confirmacao_pendente),
+):
     payload = {
         "session_id": st.session_state.session_id,
         "mensagem": prompt,

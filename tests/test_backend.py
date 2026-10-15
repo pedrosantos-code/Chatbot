@@ -91,6 +91,78 @@ class BackendPersistenceTests(unittest.TestCase):
         self.assertFalse(known.precisa_ensino)
         self.assertEqual(known.resposta, "Regue conforme a espécie e a luz disponível.")
 
+    def test_uncertain_match_asks_for_confirmation_and_learns_alias(self):
+        backend.salvar_dados({
+            "respostas": [
+                {
+                    "perguntas": ["como trocar a senha do wifi"],
+                    "resposta": "Abra as configurações do roteador e altere a senha.",
+                }
+            ]
+        })
+
+        candidate = backend.processar_chat(
+            backend.ChatRequest(session_id="session-1", mensagem="como posso trocar senha wifi")
+        )
+        self.assertTrue(candidate.precisa_confirmacao)
+        self.assertFalse(candidate.precisa_ensino)
+        self.assertEqual(
+            candidate.resposta,
+            "Abra as configurações do roteador e altere a senha.",
+        )
+
+        result = backend.confirmar_resposta(
+            backend.ConfirmarRespostaRequest(session_id="session-1", aceita=True)
+        )
+        self.assertFalse(result["precisa_ensino"])
+        self.assertIn(
+            "como posso trocar senha wifi",
+            backend.carregar_dados()["respostas"][0]["perguntas"],
+        )
+        self.assertNotIn(
+            "confirmacao_pendente",
+            backend.carregar_historicos_salvos()["session-1"],
+        )
+
+        repeat = backend.processar_chat(
+            backend.ChatRequest(session_id="session-2", mensagem="como posso trocar senha wifi")
+        )
+        self.assertFalse(repeat.precisa_confirmacao)
+        self.assertEqual(repeat.resposta, candidate.resposta)
+
+    def test_rejecting_uncertain_match_opens_teaching_flow(self):
+        backend.salvar_dados({
+            "respostas": [
+                {
+                    "perguntas": ["como trocar a senha do wifi"],
+                    "resposta": "Abra as configurações do roteador e altere a senha.",
+                }
+            ]
+        })
+        backend.processar_chat(
+            backend.ChatRequest(session_id="session-1", mensagem="como posso trocar senha wifi")
+        )
+
+        result = backend.confirmar_resposta(
+            backend.ConfirmarRespostaRequest(session_id="session-1", aceita=False)
+        )
+        self.assertTrue(result["precisa_ensino"])
+        self.assertEqual(
+            backend.carregar_historicos_salvos()["session-1"]["pergunta_pendente"],
+            "como posso trocar senha wifi",
+        )
+        self.assertNotIn(
+            "confirmacao_pendente",
+            backend.carregar_historicos_salvos()["session-1"],
+        )
+
+    def test_high_confidence_match_is_returned_without_confirmation(self):
+        response = backend.processar_chat(
+            backend.ChatRequest(session_id="session-1", mensagem="qual seu nome")
+        )
+        self.assertFalse(response.precisa_confirmacao)
+        self.assertFalse(response.precisa_ensino)
+
     def test_backup_contains_data_and_history_files(self):
         response = backend.baixar_backup()
         with zipfile.ZipFile(BytesIO(response.body)) as archive:

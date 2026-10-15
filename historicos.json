@@ -1,1 +1,16 @@
-{}
+{
+    "23ffc0a4-c563-4360-aa08-a7032d4295f0": {
+        "titulo": "Temperatura",
+        "mensagens": [
+            {
+                "role": "user",
+                "content": "olá, tudo bem? qual a temperatura hoje?"
+            },
+            {
+                "role": "assistant",
+                "content": "Ainda não sei responder isso. Você pode me ensinar uma resposta abaixo."
+            }
+        ],
+        "pergunta_pendente": "olá, tudo bem? qual a temperatura hoje?"
+    }
+}
