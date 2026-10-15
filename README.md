@@ -1,1 +1,29 @@
-# Chatbot
+# Chatbot local
+
+Chatbot pessoal feito com Streamlit e FastAPI. As conversas e respostas ensinadas ficam nos arquivos `historicos.json` e `dados.json`; o projeto não usa serviços de IA externos.
+
+## Executar no Windows
+
+Instale as dependências uma vez, com internet:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Depois, em dois terminais, inicie o backend e a interface:
+
+```powershell
+uvicorn backend:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+.\venv\Scripts\Activate.ps1
+streamlit run app.py
+```
+
+O aplicativo se comunica apenas com o backend local em `127.0.0.1`. Depois de instalar Python e as dependências, pode ser usado sem internet.
+
+## Como o aprendizado funciona
+
+O chatbot procura perguntas semelhantes na base local. Quando não encontra uma resposta confiável, ele pede que você ensine a resposta correta; perguntas desconhecidas não são salvas como respostas falsas. O aprendizado é uma base local de perguntas e respostas, não treinamento autônomo de um modelo de linguagem.

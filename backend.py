@@ -1,10 +1,10 @@
 import json
-import os
+import unicodedata
 import re
 import difflib
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
 
 app = FastAPI(
     title="Chatbot Local com Títulos Inteligentes e Gestão de Histórico",
@@ -12,29 +12,82 @@ app = FastAPI(
     version="3.0.0"
 )
 
-ARQUIVO_DADOS = "dados.json"
-ARQUIVO_HISTORICOS = "historicos.json"
+PASTA_DADOS = Path(__file__).resolve().parent
+ARQUIVO_DADOS = PASTA_DADOS / "dados.json"
+ARQUIVO_HISTORICOS = PASTA_DADOS / "historicos.json"
+RESPOSTA_DESCONHECIDA = "Ainda não sei responder isso. Você pode me ensinar uma resposta abaixo."
 
-# --- Funções Auxiliares de Dados e Histórico ---
+
+def carregar_json(caminho: Path, padrao):
+    if not caminho.exists():
+        return padrao
+    with caminho.open("r", encoding="utf-8") as arquivo:
+        return json.load(arquivo)
+
+
+def salvar_json(caminho: Path, dados):
+    temporario = caminho.with_suffix(caminho.suffix + ".tmp")
+    with temporario.open("w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=4)
+    temporario.replace(caminho)
+
+
 def carregar_dados():
-    if os.path.exists(ARQUIVO_DADOS):
-        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"respostas": []}
+    return carregar_json(ARQUIVO_DADOS, {"respostas": []})
+
 
 def salvar_dados(dados):
-    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=4)
+    salvar_json(ARQUIVO_DADOS, dados)
+
 
 def carregar_historicos_salvos():
-    if os.path.exists(ARQUIVO_HISTORICOS):
-        with open(ARQUIVO_HISTORICOS, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    return carregar_json(ARQUIVO_HISTORICOS, {})
+
 
 def salvar_historicos_salvos(historicos):
-    with open(ARQUIVO_HISTORICOS, "w", encoding="utf-8") as f:
-        json.dump(historicos, f, ensure_ascii=False, indent=4)
+    salvar_json(ARQUIVO_HISTORICOS, historicos)
+
+
+def normalizar_texto(texto: str) -> str:
+    texto = unicodedata.normalize("NFKD", texto.casefold())
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    return re.sub(r"[^\w\s]", " ", texto).strip()
+
+
+def buscar_resposta(pergunta: str, respostas: list) -> str | None:
+    pergunta_normalizada = normalizar_texto(pergunta)
+    melhor_resposta = None
+    maior_pontuacao = 0.0
+
+    for item in respostas:
+        if not isinstance(item, dict):
+            continue
+        resposta = item.get("resposta", "")
+        if not isinstance(resposta, str) or resposta.startswith("Ainda estou a processar informações"):
+            continue
+
+        for pergunta_salva in item.get("perguntas", []):
+            if not isinstance(pergunta_salva, str):
+                continue
+            salva_normalizada = normalizar_texto(pergunta_salva)
+            if not salva_normalizada:
+                continue
+            if pergunta_normalizada == salva_normalizada:
+                return resposta
+
+            palavras_pergunta = set(pergunta_normalizada.split())
+            palavras_salvas = set(salva_normalizada.split())
+            uniao = palavras_pergunta | palavras_salvas
+            similaridade_palavras = len(palavras_pergunta & palavras_salvas) / len(uniao) if uniao else 0.0
+            similaridade_texto = difflib.SequenceMatcher(
+                None, pergunta_normalizada, salva_normalizada, autojunk=False
+            ).ratio()
+            pontuacao = 0.7 * similaridade_texto + 0.3 * similaridade_palavras
+            if pontuacao > maior_pontuacao:
+                maior_pontuacao = pontuacao
+                melhor_resposta = resposta
+
+    return melhor_resposta if maior_pontuacao >= 0.72 else None
 
 # --- Função Inteligente de Títulos com Salto de Abertura ---
 def gerar_titulo_inteligente(mensagem: str) -> str:
@@ -79,74 +132,113 @@ def gerar_titulo_inteligente(mensagem: str) -> str:
     return " ".join([p.capitalize() for p in palavras_finais])
 
 # --- Modelos Pydantic ---
-class MensagemHistorico(BaseModel):
-    role: str
-    content: str
-
 class ChatRequest(BaseModel):
     session_id: str
     mensagem: str
-    historico: Optional[List[MensagemHistorico]] = []
 
 class ChatResponse(BaseModel):
     resposta: str
     titulo_sessao: str
+    precisa_ensino: bool
+
+class EnsinoRequest(BaseModel):
+    session_id: str
+    pergunta: str
+    resposta: str
+
+class EnsinoResponse(BaseModel):
+    status: str
+    mensagem: str
 
 # --- Rotas da API ---
 @app.get("/")
 def home():
-    return {"status": "Backend com gestão de histórico a funcionar com sucesso!"}
+    return {"status": "Backend local funcionando."}
 
 @app.post("/chat", response_model=ChatResponse)
 def processar_chat(req: ChatRequest):
-    try:
-        dados = carregar_dados()
-        mensagem_usuario = req.mensagem.lower().strip()
-        
-        melhor_resposta = None
-        maior_pontuacao = 0.0
+    mensagem_usuario = req.mensagem.strip()
+    if not mensagem_usuario:
+        raise HTTPException(status_code=422, detail="A mensagem não pode ficar vazia.")
 
-        for item in dados.get("respostas", []):
-            for p in item["perguntas"]:
-                pontuacao = difflib.SequenceMatcher(None, mensagem_usuario, p.lower()).ratio()
-                if pontuacao > maior_pontuacao:
-                    maior_pontuacao = pontuacao
-                    melhor_resposta = item["resposta"]
+    resposta_final = buscar_resposta(mensagem_usuario, carregar_dados().get("respostas", []))
+    precisa_ensino = resposta_final is None
+    if precisa_ensino:
+        resposta_final = RESPOSTA_DESCONHECIDA
 
-        if maior_pontuacao >= 0.4:
-            resposta_final = melhor_resposta
-        else:
-            nova_entrada = {
-                "perguntas": [mensagem_usuario],
-                "resposta": f"Ainda estou a processar informações sobre '{req.mensagem}', mas registei este tema na minha base de dados local."
-            }
-            dados["respostas"].append(nova_entrada)
-            salvar_dados(dados)
-            
-            resposta_final = f"Interessante! Adicionei a tua questão à minha base de dados local."
+    historicos = carregar_historicos_salvos()
+    if req.session_id not in historicos:
+        titulo_sessao = gerar_titulo_inteligente(mensagem_usuario)
+        historicos[req.session_id] = {"titulo": titulo_sessao, "mensagens": []}
+    else:
+        titulo_sessao = historicos[req.session_id]["titulo"]
 
-        historicos = carregar_historicos_salvos()
-        
-        if req.session_id not in historicos:
-            titulo_sessao = gerar_titulo_inteligente(req.mensagem)
-            historicos[req.session_id] = {
-                "titulo": titulo_sessao,
-                "mensagens": []
-            }
-        else:
-            titulo_sessao = historicos[req.session_id]["titulo"]
+    if precisa_ensino:
+        historicos[req.session_id]["pergunta_pendente"] = mensagem_usuario
 
-        historicos[req.session_id]["mensagens"].append({"role": "user", "content": req.mensagem})
-        historicos[req.session_id]["mensagens"].append({"role": "assistant", "content": resposta_final})
-        salvar_historicos_salvos(historicos)
+    historicos[req.session_id]["mensagens"].extend([
+        {"role": "user", "content": mensagem_usuario},
+        {"role": "assistant", "content": resposta_final},
+    ])
+    salvar_historicos_salvos(historicos)
 
-        return ChatResponse(
-            resposta=resposta_final,
-            titulo_sessao=titulo_sessao
-        )
+    return ChatResponse(
+        resposta=resposta_final,
+        titulo_sessao=titulo_sessao,
+        precisa_ensino=precisa_ensino,
+    )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ensinar", response_model=EnsinoResponse)
+def ensinar_resposta(req: EnsinoRequest):
+    pergunta = req.pergunta.strip()
+    resposta = req.resposta.strip()
+    if not pergunta or not resposta:
+        raise HTTPException(status_code=422, detail="Pergunta e resposta são obrigatórias.")
+
+    dados = carregar_dados()
+    itens = dados.setdefault("respostas", [])
+    pergunta_normalizada = normalizar_texto(pergunta)
+    item_existente = next(
+        (
+            item for item in itens
+            if isinstance(item, dict)
+            and any(
+                isinstance(salva, str) and normalizar_texto(salva) == pergunta_normalizada
+                for salva in item.get("perguntas", [])
+            )
+        ),
+        None,
+    )
+    if item_existente:
+        item_existente["resposta"] = resposta
+    else:
+        itens.append({"perguntas": [pergunta], "resposta": resposta})
+    salvar_dados(dados)
+
+    historicos = carregar_historicos_salvos()
+    conversa = historicos.get(req.session_id)
+    if conversa:
+        historico_alterado = False
+        if conversa.get("pergunta_pendente") == pergunta:
+            conversa.pop("pergunta_pendente")
+            historico_alterado = True
+        mensagens = conversa.get("mensagens", [])
+        for indice in range(len(mensagens) - 2, -1, -1):
+            if (
+                mensagens[indice].get("role") == "user"
+                and mensagens[indice].get("content") == pergunta
+                and indice + 1 < len(mensagens)
+                and mensagens[indice + 1].get("role") == "assistant"
+                and mensagens[indice + 1].get("content") == RESPOSTA_DESCONHECIDA
+            ):
+                mensagens[indice + 1]["content"] = "Aprendi essa resposta e vou usá-la nas próximas conversas."
+                historico_alterado = True
+                break
+        if historico_alterado:
+            salvar_historicos_salvos(historicos)
+
+    return EnsinoResponse(status="sucesso", mensagem="Aprendi! Vou usar essa resposta nas próximas conversas.")
 
 @app.get("/historicos")
 def obter_historicos():

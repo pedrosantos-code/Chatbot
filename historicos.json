@@ -1,27 +1,64 @@
 {
-    "3c961e1f-590c-4b20-87c1-b2c6ac6fd1a3": {
-        "titulo": "Vape aonde posso",
+    "ad927973-3bb8-47de-84cc-2bb10b2bf1c4": {
+        "titulo": "Celular Sumiu",
         "mensagens": [
             {
                 "role": "user",
-                "content": "quero vape, aonde eu posso comprar"
+                "content": "meu celular sumiu"
             },
             {
                 "role": "assistant",
-                "content": "Interessante! Não tinha registo disso, por isso adicionei a tua pergunta à minha base de dados local. Da próxima vez já saberei!"
+                "content": "Interessante! Adicionei a tua questão à minha base de dados local."
             }
         ]
     },
-    "a1885f22-4c7b-452a-8c58-59dafc2bffd8": {
-        "titulo": "Vou Passear Amigo N Vi",
+    "cfe58a27-a521-4ff8-afb9-cecf53355e35": {
+        "titulo": "Dgfdgdgfd",
         "mensagens": [
             {
                 "role": "user",
-                "content": "vou passear com um amigo, n vi que tava chovendo, vc consegue me ver a tempertaura de amanhã?"
+                "content": "dgfdgdgfd"
             },
             {
                 "role": "assistant",
-                "content": "Interessante! Não tinha registo disso, por isso adicionei a tua pergunta à minha base de dados local. Da próxima vez já saberei!"
+                "content": "Interessante! Adicionei a tua questão à minha base de dados local."
+            },
+            {
+                "role": "user",
+                "content": "gfdgdgdgdgd"
+            },
+            {
+                "role": "assistant",
+                "content": "Ainda estou a processar informações sobre 'dgfdgdgfd', mas registei este tema na minha base de dados local."
+            },
+            {
+                "role": "user",
+                "content": "dgdfdgfgdg"
+            },
+            {
+                "role": "assistant",
+                "content": "Ainda estou a processar informações sobre 'dgfdgdgfd', mas registei este tema na minha base de dados local."
+            }
+        ]
+    },
+    "5b25a0b1-5203-492b-b363-7567c4948237": {
+        "titulo": "Dsfdfdfdgfgdgf",
+        "mensagens": [
+            {
+                "role": "user",
+                "content": "dsfdfdfdgfgdgf"
+            },
+            {
+                "role": "assistant",
+                "content": "Ainda estou a processar informações sobre 'dgfdgdgfd', mas registei este tema na minha base de dados local."
+            },
+            {
+                "role": "user",
+                "content": "gfdgfggfdgfdgdg"
+            },
+            {
+                "role": "assistant",
+                "content": "Ainda estou a processar informações sobre 'dgfdgdgfd', mas registei este tema na minha base de dados local."
             }
         ]
     }
