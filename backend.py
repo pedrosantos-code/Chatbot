@@ -1,10 +1,12 @@
-import json
-import unicodedata
-import re
 import difflib
 import io
+import json
+import re
+import unicodedata
 import zipfile
 from pathlib import Path
+from typing import TypedDict
+
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
@@ -21,6 +23,12 @@ RESPOSTA_DESCONHECIDA = "Ainda não sei responder isso. Você pode me ensinar um
 LIMIAR_RESPOSTA_DIRETA = 0.86
 LIMIAR_RESPOSTA_PARECIDA = 0.58
 MARGEM_AMBIGUIDADE = 0.08
+
+
+class Correspondencia(TypedDict):
+    pergunta_base: str
+    resposta: str
+    pontuacao: float
 
 
 def carregar_json(caminho: Path, padrao):
@@ -59,8 +67,9 @@ def normalizar_texto(texto: str) -> str:
     return re.sub(r"[^\w\s]", " ", texto).strip()
 
 
-def buscar_correspondencias(pergunta: str, respostas: list) -> list[dict]:
+def buscar_correspondencias(pergunta: str, respostas: list) -> list[Correspondencia]:
     pergunta_normalizada = normalizar_texto(pergunta)
+    palavras_pergunta = set(pergunta_normalizada.split())
     por_resposta = {}
 
     for item in respostas:
@@ -79,7 +88,6 @@ def buscar_correspondencias(pergunta: str, respostas: list) -> list[dict]:
             if pergunta_normalizada == salva_normalizada:
                 pontuacao = 1.0
             else:
-                palavras_pergunta = set(pergunta_normalizada.split())
                 palavras_salvas = set(salva_normalizada.split())
                 uniao = palavras_pergunta | palavras_salvas
                 similaridade_palavras = (
@@ -107,7 +115,9 @@ def buscar_melhor_correspondencia(pergunta: str, respostas: list) -> dict | None
     return correspondencias[0] if correspondencias else None
 
 
-def correspondencias_ambiguas(correspondencias: list[dict]) -> list[dict]:
+def correspondencias_ambiguas(
+    correspondencias: list[Correspondencia],
+) -> list[Correspondencia]:
     if len(correspondencias) < 2:
         return []
 
@@ -126,6 +136,24 @@ def correspondencias_ambiguas(correspondencias: list[dict]) -> list[dict]:
         if correspondencia["pontuacao"] >= LIMIAR_RESPOSTA_PARECIDA
         and melhor_pontuacao - correspondencia["pontuacao"] <= MARGEM_AMBIGUIDADE
     ][:3]
+
+
+def encontrar_resposta_base(
+    respostas: list,
+    pergunta_base: str,
+    resposta: str,
+) -> dict | None:
+    pergunta_base_normalizada = normalizar_texto(pergunta_base)
+    for item in respostas:
+        if not isinstance(item, dict) or item.get("resposta") != resposta:
+            continue
+        if any(
+            isinstance(pergunta, str)
+            and normalizar_texto(pergunta) == pergunta_base_normalizada
+            for pergunta in item.get("perguntas", [])
+        ):
+            return item
+    return None
 
 
 def buscar_resposta(pergunta: str, respostas: list) -> str | None:
@@ -206,7 +234,7 @@ class ChatResponse(BaseModel):
     precisa_ensino: bool
     precisa_confirmacao: bool = False
     precisa_desambiguacao: bool = False
-    respostas_candidatas: list[dict]
+    respostas_candidatas: list[Correspondencia]
 
 class EnsinoRequest(BaseModel):
     session_id: str
@@ -248,8 +276,7 @@ def processar_chat(req: ChatRequest):
     precisa_desambiguacao = bool(candidatas_ambiguas)
     precisa_confirmacao = bool(
         not precisa_desambiguacao
-        and
-        correspondencia
+        and correspondencia
         and LIMIAR_RESPOSTA_PARECIDA <= correspondencia["pontuacao"] < LIMIAR_RESPOSTA_DIRETA
     )
     precisa_ensino = (
@@ -328,18 +355,10 @@ def desambiguar_resposta(req: DesambiguarRespostaRequest):
 
     escolhida = candidatas[req.indice]
     dados = carregar_dados()
-    entrada = next(
-        (
-            item for item in dados.get("respostas", [])
-            if isinstance(item, dict)
-            and item.get("resposta") == escolhida["resposta"]
-            and any(
-                isinstance(pergunta, str)
-                and normalizar_texto(pergunta) == normalizar_texto(escolhida["pergunta_base"])
-                for pergunta in item.get("perguntas", [])
-            )
-        ),
-        None,
+    entrada = encontrar_resposta_base(
+        dados.get("respostas", []),
+        escolhida["pergunta_base"],
+        escolhida["resposta"],
     )
     if not entrada:
         raise HTTPException(
@@ -374,18 +393,10 @@ def confirmar_resposta(req: ConfirmarRespostaRequest):
 
     if req.aceita:
         dados = carregar_dados()
-        entrada = next(
-            (
-                item for item in dados.get("respostas", [])
-                if isinstance(item, dict)
-                and item.get("resposta") == pendente["resposta"]
-                and any(
-                    isinstance(pergunta, str)
-                    and normalizar_texto(pergunta) == normalizar_texto(pendente["pergunta_base"])
-                    for pergunta in item.get("perguntas", [])
-                )
-            ),
-            None,
+        entrada = encontrar_resposta_base(
+            dados.get("respostas", []),
+            pendente["pergunta_base"],
+            pendente["resposta"],
         )
         if not entrada:
             raise HTTPException(

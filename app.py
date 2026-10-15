@@ -1,6 +1,7 @@
-import streamlit as st
-import requests
 import uuid
+
+import requests
+import streamlit as st
 
 # Configuração da página
 st.set_page_config(
@@ -10,6 +11,15 @@ st.set_page_config(
 )
 
 API_URL = "http://127.0.0.1:8000"
+
+
+def iniciar_conversa_nova() -> None:
+    st.session_state.session_id = str(uuid.uuid4())
+    st.session_state.mensagens = []
+    st.session_state.pergunta_pendente = None
+    st.session_state.confirmacao_pendente = None
+    st.session_state.desambiguacao_pendente = None
+
 
 # --- CSS Avançado para Fundir as Colunas numa Única Caixa Contínua ---
 st.markdown("""
@@ -99,27 +109,16 @@ st.markdown("""
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 
-if "mensagens" not in st.session_state:
-    st.session_state.mensagens = []
-
-if "pergunta_pendente" not in st.session_state:
-    st.session_state.pergunta_pendente = None
-
-if "confirmacao_pendente" not in st.session_state:
-    st.session_state.confirmacao_pendente = None
-
-if "desambiguacao_pendente" not in st.session_state:
-    st.session_state.desambiguacao_pendente = None
+st.session_state.setdefault("mensagens", [])
+st.session_state.setdefault("pergunta_pendente", None)
+st.session_state.setdefault("confirmacao_pendente", None)
+st.session_state.setdefault("desambiguacao_pendente", None)
 
 # --- BARRA LATERAL (Histórico e Gestão) ---
 st.sidebar.title("💬 Histórico de Conversas")
 
 if st.sidebar.button("➕ Nova Conversa", use_container_width=True):
-    st.session_state.session_id = str(uuid.uuid4())
-    st.session_state.mensagens = []
-    st.session_state.pergunta_pendente = None
-    st.session_state.confirmacao_pendente = None
-    st.session_state.desambiguacao_pendente = None
+    iniciar_conversa_nova()
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -134,11 +133,11 @@ except requests.RequestException as e:
 
 if historicos:
     st.sidebar.subheader("Conversas Guardadas")
-    
-    for sid, dados in list(historicos.items()):
+
+    for sid, dados in historicos.items():
         col_titulo, col_deletar = st.sidebar.columns([0.82, 0.18], gap=None)
         titulo_sessao = dados.get("titulo", "Conversa sem título")
-        
+
         if col_titulo.button(
             f"📄 {titulo_sessao}",
             key=f"select_{sid}",
@@ -151,7 +150,7 @@ if historicos:
             st.session_state.confirmacao_pendente = dados.get("confirmacao_pendente")
             st.session_state.desambiguacao_pendente = dados.get("desambiguacao_pendente")
             st.rerun()
-            
+
         if col_deletar.button(
             "✕",
             key=f"del_{sid}",
@@ -160,14 +159,10 @@ if historicos:
         ):
             try:
                 del_res = requests.delete(f"{API_URL}/historicos/{sid}", timeout=5)
-                
+
                 if del_res.status_code == 200:
                     if st.session_state.session_id == sid:
-                        st.session_state.session_id = str(uuid.uuid4())
-                        st.session_state.mensagens = []
-                        st.session_state.pergunta_pendente = None
-                        st.session_state.confirmacao_pendente = None
-                        st.session_state.desambiguacao_pendente = None
+                        iniciar_conversa_nova()
                     st.rerun()
                 else:
                     st.sidebar.error(f"Erro ao apagar: {del_res.text}")
@@ -247,18 +242,12 @@ with st.sidebar.expander("🧠 Base de respostas e backup"):
     else:
         st.caption("Ainda não há respostas na base local para revisar.")
 
-    try:
-        backup_res = requests.get(f"{API_URL}/backup", timeout=10)
-        backup_res.raise_for_status()
-        st.download_button(
-            "Baixar backup dos dados",
-            data=backup_res.content,
-            file_name="chatbot-backup.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-    except requests.RequestException as e:
-        st.error(f"Não foi possível preparar o backup: {e}")
+    st.link_button(
+        "Baixar backup dos dados",
+        url=f"{API_URL}/backup",
+        help="Gera e baixa um ZIP com os dados e o histórico atuais.",
+        use_container_width=True,
+    )
 
 # Restaura uma pergunta ainda não ensinada ao reabrir o app.
 conversa_atual = historicos.get(st.session_state.session_id, {})
@@ -320,7 +309,7 @@ with col_header_dir:
         f'<div class="medidor-trilha"><span class="medidor-indicador" '
         f'style="left: {posicao_indicador}%;"></span></div>'
         f'</div>',
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 st.markdown("---")
@@ -332,7 +321,10 @@ for msg in st.session_state.mensagens:
 
 if st.session_state.desambiguacao_pendente:
     pendente = st.session_state.desambiguacao_pendente
-    st.info(f"Encontrei respostas diferentes para: **{pendente['pergunta']}**. Qual delas você quis dizer?")
+    st.info(
+        f"Encontrei respostas diferentes para: **{pendente['pergunta']}**. "
+        "Qual delas você quis dizer?"
+    )
     candidatas = pendente.get("candidatas", [])
     if candidatas:
         with st.form(f"desambiguar_{st.session_state.session_id}"):
@@ -361,7 +353,10 @@ if st.session_state.desambiguacao_pendente:
                 )
                 selecao_res.raise_for_status()
                 dados_selecao = selecao_res.json()
-                if st.session_state.mensagens and st.session_state.mensagens[-1]["role"] == "assistant":
+                if (
+                    st.session_state.mensagens
+                    and st.session_state.mensagens[-1]["role"] == "assistant"
+                ):
                     st.session_state.mensagens[-1]["content"] = dados_selecao["resposta"]
                 st.session_state.desambiguacao_pendente = None
                 st.toast("Obrigado! Vou lembrar que essa pergunta corresponde a esta resposta.")
@@ -395,7 +390,10 @@ if st.session_state.confirmacao_pendente:
             )
             avaliacao.raise_for_status()
             dados_avaliacao = avaliacao.json()
-            if st.session_state.mensagens and st.session_state.mensagens[-1]["role"] == "assistant":
+            if (
+                st.session_state.mensagens
+                and st.session_state.mensagens[-1]["role"] == "assistant"
+            ):
                 st.session_state.mensagens[-1]["content"] = dados_avaliacao["mensagem"]
             pergunta_confirmada = st.session_state.confirmacao_pendente["pergunta"]
             st.session_state.confirmacao_pendente = None
