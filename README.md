@@ -1,3 +1,5 @@
+### Link do site no ar: https://chatbot-local-hymdrzyuj3bp8pqjjdqbro.streamlit.app/
+
 # Chatbot local
 
 Chatbot pessoal feito com Streamlit e FastAPI. As conversas e respostas ensinadas ficam nos arquivos `historicos.json` e `dados.json`; o projeto não usa serviços de IA externos.
